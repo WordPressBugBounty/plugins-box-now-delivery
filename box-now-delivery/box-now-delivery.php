@@ -4,7 +4,7 @@ Plugin Name: BOX NOW Delivery
 Description: A Wordpress plugin from BOX NOW to integrate your eshop with our services.
 Author: BOX NOW
 Text Domain: box-now-delivery
-Version: 2.1.3
+Version: 2.1.4
 */
 
 // Cancel order API call file
@@ -157,7 +157,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
               'id' => '_boxnow_locker_id',
               'label' => esc_html__('Locker ID'),
               'wrapper_class' => '_boxnow_locker_id',
-              'value' => get_post_meta($order->get_id(), '_boxnow_locker_id', true)
+              'value' => $order->get_meta('_boxnow_locker_id')
           ));
 
             $warehouse_ids = explode(',', str_replace(' ', '', get_option('boxnow_warehouse_id', '')));
