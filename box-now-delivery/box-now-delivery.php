@@ -4,7 +4,7 @@ Plugin Name: BOX NOW Delivery
 Description: A Wordpress plugin from BOX NOW to integrate your eshop with our services.
 Author: BOX NOW
 Text Domain: box-now-delivery
-Version: 2.1.4
+Version: 2.1.5
 */
 
 // Cancel order API call file
@@ -35,6 +35,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
       wp_enqueue_style('box-now-delivery-css', plugins_url('/css/box-now-delivery.css', __FILE__));
 
       wp_localize_script('box-now-delivery-js', 'boxNowDeliverySettings', array(
+        'partnerId' => esc_attr(get_option('boxnow_partner_id', '')),
         'embeddedIframe' => esc_attr(get_option('embedded_iframe', '')),
         'displayMode' => esc_attr(get_option('box_now_display_mode', 'popup')),
         'buttonColor' => $button_color,
@@ -83,6 +84,25 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
     }
   }
   add_action('wp_footer', 'bndp_hide_box_now_delivery_locker_id_field');
+
+
+    /**
+     * Remove the selected locker details from local storage when order placed
+     */
+    function check_order_received_page ()
+    {
+        if (is_order_received_page()) {
+            ?>
+            <script>
+                jQuery(document).ready(function($) {
+                    localStorage.removeItem("box_now_selected_locker");
+                });
+            </script>
+            <?php
+        }
+    }
+
+    add_action('wp_footer', 'check_order_received_page');
 
   /* Display field value on the order edit page */
   add_action('woocommerce_admin_order_data_after_billing_address', 'bndp_box_now_delivery_checkout_field_display_admin_order_meta', 10, 1);
@@ -518,7 +538,7 @@ if (substr($tel, 0, 1) != '+') {
   // If the phone starts with "00", replace "00" with "+"
   if (substr($tel, 0, 2) === '00') {
       $tel = '+' . substr($tel, 2);
-  } 
+  }
   // If the phone starts with the specified codes and has less than 9 digits, put "+357" in the beginning
   elseif (in_array(substr($tel, 0, 2), ['22', '23', '24', '25', '26', '96', '97', '98', '99']) && strlen(preg_replace('/[^\d]/', '', $tel)) < 9) {
       $tel = '+357' . preg_replace('/[^\d]/', '', $tel);

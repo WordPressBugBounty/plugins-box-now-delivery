@@ -137,6 +137,7 @@
    */
   function createPopupMap() {
     let gpsOption = boxNowDeliverySettings.gps_option;
+    let partnerId = boxNowDeliverySettings.partnerId;
     let postalCode = $('input[name="billing_postcode"]').val();
     let country = GetUserCountry();
     console.log(country);
@@ -146,6 +147,8 @@
     } else {
       src = "https://widget-v5.boxnow.gr/popup.html";
     }
+
+    partnerId ? src += "?partnerId=" + partnerId : "";
 
     if (gpsOption === "off") {
       src +=
@@ -193,6 +196,7 @@
    */
   function createEmbeddedIframe() {
     let gpsOption = boxNowDeliverySettings.gps_option;
+    let partnerId = boxNowDeliverySettings.partnerId;
     let postalCode = $('input[name="billing_postcode"]').val();
     let country = GetUserCountry();
 
@@ -201,6 +205,8 @@
     } else {
       src = "https://widget-v5.boxnow.gr";
     }
+
+    partnerId ? src += "?partnerId=" + partnerId : "";
 
     if (gpsOption === "off") {
       src += "?gps=no&zip=" + encodeURIComponent(postalCode);
@@ -376,7 +382,10 @@
   function init() {
     addButton();
     toggleBoxNowDelivery();
-    clearSelectedLockerDetails();
+
+    if ($("#shipping_method_0_box_now_delivery").is(":checked")) {
+        showSelectedLockerDetailsFromLocalStorage();
+    }
   }
 
   /**
@@ -432,5 +441,9 @@
     );
 
     addOrderValidation();
+
+    $('body').on('change', '#billing_country', function(){
+        clearSelectedLockerDetails();
+    });
   });
 })(jQuery);
