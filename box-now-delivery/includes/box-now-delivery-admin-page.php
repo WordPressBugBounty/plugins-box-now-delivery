@@ -96,7 +96,7 @@ function box_now_delivery_options()
                         <p>
                             <label>Your Orders Contact Mobile Phone *</label>
                             <br />
-                            <input type="text" name="boxnow_mobile_number" value="<?php echo esc_attr(get_option('boxnow_mobile_number', '')); ?>" pattern="^\+(30|35|359|385)(9|69|87|88|89).*" placeholder="Enter your phone with country preffix (+30 , +357, etc)" required />
+                            <input type="text" name="boxnow_mobile_number" value="<?php echo esc_attr(get_option('boxnow_mobile_number', '')); ?>" pattern="^\+(30|357|359|385)(9|69|87|88|89).*" placeholder="Enter your phone with country preffix (+30 , +357, etc)" required />
                         </p>
                     </div>
 
