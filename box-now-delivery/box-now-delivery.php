@@ -4,7 +4,7 @@ Plugin Name: BOX NOW Delivery
 Description: A Wordpress plugin from BOX NOW to integrate your eshop with our services.
 Author: BOX NOW
 Text Domain: box-now-delivery
-Version: 2.1.7
+Version: 2.1.8
 */
 
 // Cancel order API call file
@@ -28,7 +28,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
     function box_now_delivery_enqueue_scripts()
     {
         if (is_checkout()) {
-            $button_color = esc_attr(get_option('boxnow_button_color', '#84C33F'));
+            $button_color = esc_attr(get_option('boxnow_button_color', '#6CD04E '));
             $button_text = esc_attr(get_option('boxnow_button_text', 'Pick a Locker'));
 
             wp_enqueue_script('box-now-delivery-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery.js', array('jquery'), '1.0.0', true);
@@ -386,7 +386,7 @@ function boxnow_order_completed_delivery_request($prep_data, $order_id, $num_vou
             "invoiceValue" => $payment_method === 'cod' ? number_format($prep_data['order_total'], 2, '.', '') : "0",
             "paymentMode" => $payment_method === 'cod' ? "cod" : "prepaid",
             "amountToBeCollected" => $payment_method === 'cod' ? number_format($prep_data['order_total'], 2, '.', '') : "0",
-            "allowReturn" => true,
+            "allowReturn" => boolval(get_option('boxnow_allow_returns', '')),
             "origin" => [
                     "contactNumber" => get_option('boxnow_mobile_number', ''),
                     "contactEmail" => get_option('boxnow_voucher_email', ''),
@@ -601,7 +601,7 @@ function boxnow_send_delivery_request($prep_data, $order_id, $num_vouchers, $com
             "invoiceValue" => $payment_method === 'cod' ? number_format($prep_data['order_total'], 2, '.', '') : "0",
             "paymentMode" => $payment_method === 'cod' ? "cod" : "prepaid",
             "amountToBeCollected" => $payment_method === 'cod' ? number_format($prep_data['order_total'], 2, '.', '') : "0",
-            "allowReturn" => true,
+            "allowReturn" => boolval(get_option('boxnow_allow_returns', '')),
             "origin" => [
                     "contactNumber" => get_option('boxnow_mobile_number', ''),
                     "contactEmail" => get_option('boxnow_voucher_email', ''),
@@ -732,8 +732,7 @@ function box_now_delivery_vouchers_input($order)
                 <h4>Create BOX NOW Voucher(s)</h4>
                 <p>Vouchers for this order (Max Vouchers: <span style="font-weight: bold; color: red;"><?php echo esc_html($max_vouchers); ?></span>)</p>
                 <input type="hidden" id="box_now_order_id" value="<?php echo esc_attr($order->get_id()); ?>" />
-                <input type="number" id="box_now_voucher_code" name="box_now_voucher_code" min="1" max="<?php echo esc_attr($max_vouchers); ?>" placeholder="Enter voucher quantity" style="width: 50%;" />
-
+                <input pattern="^[1-<?php echo esc_attr($max_vouchers); ?>]$" type="number" id="box_now_voucher_code" name="box_now_voucher_code" min="1" max="<?php echo esc_attr($max_vouchers); ?>" value="1" placeholder="Enter voucher quantity" style="width: 50%;" />
                 <!-- Add buttons for each compartment size -->
                 <div class="box-now-compartment-size-buttons" style="margin-top: 10px;">
                     <button type="button" id="box_now_create_voucher_small" class="button button-primary" data-compartment-size="small" <?php echo esc_attr($button_disabled); ?> style="display: block; margin-bottom: 10px;">Create Vouchers (Small)</button>

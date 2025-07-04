@@ -11,13 +11,13 @@
 }
 
 .wrap h1 {
-    color: #84C33F;
+    color: #6CD04E ;
     font-size: 36px;
 }
 
 .wrap h2 {
     font-size: 24px;
-    color: #84C33F;
+    color: #6CD04E ;
     margin-bottom: 20px;
 }
 
@@ -40,7 +40,7 @@
 }
 
 .wrap input[type="submit"] {
-    background-color: #84C33F;
+    background-color: #6CD04E ;
     color: #fff;
     border: none;
     border-radius: 5px;
@@ -50,11 +50,11 @@
 }
 
 .wrap input[type="submit"]:hover {
-    background-color: #84C33F;
+    background-color: #6CD04E ;
 }
 
 .wrap a {
-    color: #84C33F;
+    color: #6CD04E ;
     text-decoration: none;
 }
 
@@ -64,7 +64,7 @@
 
 /* Save Changes button styles */
 .wrap .button-primary {
-    background-color: #84C33F;
+    background-color: #6CD04E ;
     border: 2px solid #62a02c;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.2);

@@ -115,6 +115,17 @@ function box_now_delivery_options()
                     <div style="max-width: 550px; float: left;">
                         <p>*Please note: Automatic voucher issuance is not recommended. This method automatically selects compartment sizes based on item dimensions, which may lead to incorrect compartment assignments if your items are not properly configured.</p>
                     </div>
+					<h3 style="width: 100%; float: left;">Allow Returns</h3>
+                    <div style="width: 100%; float: left;">
+                        <p>
+                            <input type="radio" id="display_allow_returns_yes" name="boxnow_allow_returns" value="1" <?php checked(get_option('boxnow_allow_returns', '0'), '1'); ?>>
+                            <label for="display_allowReturns_yes">Yes</label>
+                        </p>
+                        <p>
+                            <input type="radio" id="display_allow_returns_no" name="boxnow_allow_returns" value="0" <?php checked(get_option('boxnow_allow_returns', '0'), '0'); ?>>
+                            <label for="display_allowReturns_no">No</label>
+                        </p>
+                    </div>
 
                     <!-- Widget Options -->
                     <h2 style="width: 100%; float: left;">Widget Options</h2>
@@ -149,7 +160,7 @@ function box_now_delivery_options()
                         <p>
                             <label>Change Button Background Color</label>
                             <br />
-                            <input type="text" name="boxnow_button_color" value="<?php echo esc_attr(get_option('boxnow_button_color', '#84C33F')); ?>" placeholder="#84C33F" />
+                            <input type="text" name="boxnow_button_color" value="<?php echo esc_attr(get_option('boxnow_button_color', '#6CD04E ')); ?>" placeholder="#6CD04E " />
                         </p>
                         <p>
                             <label>Change Button Text</label>

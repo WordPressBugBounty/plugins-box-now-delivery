@@ -29,7 +29,7 @@
      * Apply the custom styles for the Box Now Delivery button.
      */
     function applyButtonStyles() {
-        var buttonColor = boxNowDeliverySettings.buttonColor || "#84C33F";
+        var buttonColor = boxNowDeliverySettings.buttonColor || "#6CD04E ";
 
         var styleBlock = `
       <style id="box-now-delivery-button-styles">
@@ -109,7 +109,9 @@
             });
         }
 
-        if ($("#shipping_method_0_box_now_delivery").is(":checked")) {
+        var selected = $('input[name^="shipping_method"]:checked, input[name^="shipping_method"][type="hidden"]');
+
+        if (selected.length && selected.val().includes('box_now_delivery')) {
             $("#box_now_delivery_embedded_map").show();
         } else {
             $("#box_now_delivery_embedded_map").hide();
@@ -308,20 +310,20 @@
 
         // Define the content for English.
         var englishContent = `
-<div style="font-family: Arial, sans-serif; margin-top: 10px;">
-  <p style="margin-bottom: 10px; color: rgb(132 195 62);"><b>Selected Locker</b></p>
-  <p style="margin-bottom: 5px; font-size: 14px;"><b>Locker Name:</b> ${locker_name}</p>
-  <p style="margin-bottom: 5px; font-size: 14px;"><b>Locker Address:</b> ${locker_address}</p>
-  <p style="margin-bottom: 5px; font-size: 14px;"><b>Postal Code:</b> ${locker_postal_code}</p>
+<div style="font-family: Verdana , Arial, sans-serif;font-weight:300;margin-top: -7px;">
+  <p style="margin: 1px 0px; color: #61bb46;font-weight: 400;height: 25px;"><b>Selected Locker</b></p>
+  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_name}</p>
+  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_address}</p>
+  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_postal_code}</p>
 </div>`;
 
         // Define the content for Greek.
         var greekContent = `
-<div style="font-family: Arial, sans-serif; margin-top: 10px;">
-  <p style="margin-bottom: 10px; color: rgb(132 195 62);"><b>Επιλεγμένο locker</b></p>
-  <p style="margin-bottom: 5px; font-size: 14px;"><b>Όνομα locker:</b> ${locker_name}</p>
-  <p style="margin-bottom: 5px; font-size: 14px;"><b>Διεύθυνση locker:</b> ${locker_address}</p>
-  <p style="margin-bottom: 5px; font-size: 14px;"><b>ΤΚ:</b> ${locker_postal_code}</p>
+<div style="font-family: Verdana , Arial, sans-serif;font-weight:300;margin-top: -7px;">
+  <p style="margin: 1px 0px; color: #61bb46;font-weight: 400;height: 25px;"><b>Επιλεγμένο locker</b></p>
+  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_name}</p>
+  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_address}</p>
+  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_postal_code}</p>
 </div>`;
 
         // Choose the correct content based on the language.
@@ -462,7 +464,7 @@
 
         addOrderValidation();
 
-        $('body').on('change', '#billing_country', function(){
+        $('body').on('change', '#billing_country', function () {
             clearSelectedLockerDetails();
         });
     });

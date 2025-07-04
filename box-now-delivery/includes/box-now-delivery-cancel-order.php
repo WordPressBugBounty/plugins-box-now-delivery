@@ -3,7 +3,7 @@
 // Register custom order status
 add_action('init', 'boxnow_register_boxnow_canceled_order_status');
 // Add custom order status to WooCommerce
-add_filter('wc_order_statuses', 'boxnow_add_canceled_order_status');
+//add_filter('wc_order_statuses', 'boxnow_add_canceled_order_status');
 add_filter('woocommerce_admin_order_actions', 'boxnow_add_cancel_order_button', 10, 2);
 add_action('admin_head', 'boxnow_add_cancel_order_button_css');
 // Add the action for sending a cancellation request to the Box Now API
@@ -29,11 +29,11 @@ function boxnow_register_boxnow_canceled_order_status()
     ));
 }
 
-function boxnow_add_canceled_order_status($order_statuses)
+/**function boxnow_add_canceled_order_status($order_statuses)
 {
     $order_statuses['wc-boxnow-canceled'] = __('BOX NOW Cancel Order', 'box-now-delivery');
     return $order_statuses;
-}
+}**/
 
 function boxnow_add_cancel_order_button($actions, $order)
 {

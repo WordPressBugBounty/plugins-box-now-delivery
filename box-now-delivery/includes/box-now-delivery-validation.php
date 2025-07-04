@@ -55,6 +55,9 @@ class BNDP_Serializer
         if (isset($_POST['boxnow_voucher_email'])) {
             update_option('boxnow_voucher_email', sanitize_email($_POST['boxnow_voucher_email']));
         }
+        if (isset($_POST['boxnow_allow_returns'])) {
+            update_option('boxnow_allow_returns', sanitize_text_field($_POST['boxnow_allow_returns']));
+        }
         if (isset($_POST['boxnow_mobile_number'])) {
             update_option('boxnow_mobile_number', sanitize_text_field($_POST['boxnow_mobile_number']));
         }
