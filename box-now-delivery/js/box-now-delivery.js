@@ -56,10 +56,25 @@
         // Get the selected country from the billing_country select input
         let selectedCountry;
 
+        // Modified if clause that mitigates for shipping, billing address and cases where only one service country is selected.
         if ($('#ship-to-different-address-checkbox').is(":checked")) {
-            selectedCountry = $('select[name="shipping_country"]').val();
+            // Check if the shipping country field is a select or hidden input
+            if ($('select[name="shipping_country"]').length) {
+                // If it's a select, get the selected value
+                selectedCountry = $('select[name="shipping_country"]').val();
+            } else if ($('input[name="shipping_country"]').length) {
+                // If it's a hidden input, get the value directly
+                selectedCountry = $('input[name="shipping_country"]').val();
+            }
         } else {
-            selectedCountry = $('select[name="billing_country"]').val();
+            // Check if the billing country field is a select or hidden input
+            if ($('select[name="billing_country"]').length) {
+                // If it's a select, get the selected value
+                selectedCountry = $('select[name="billing_country"]').val();
+            } else if ($('input[name="billing_country"]').length) {
+                // If it's a hidden input, get the value directly
+                selectedCountry = $('input[name="billing_country"]').val();
+            }
         }
 
         return selectedCountry;

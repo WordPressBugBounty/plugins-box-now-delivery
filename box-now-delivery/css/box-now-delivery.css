@@ -4,7 +4,7 @@
     transition: all 0.3s;
     margin-top: 6px;
     margin-left: 5px;
-    position: absolute;
+    position: relative;
 }
 
 #box_now_delivery_button:hover {
