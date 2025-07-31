@@ -118,11 +118,11 @@ function box_now_delivery_options()
 					<h3 style="width: 100%; float: left;">Allow Returns</h3>
                     <div style="width: 100%; float: left;">
                         <p>
-                            <input type="radio" id="display_allow_returns_yes" name="boxnow_allow_returns" value="1" <?php checked(get_option('boxnow_allow_returns', '0'), '1'); ?>>
+                            <input type="radio" id="display_allow_returns_yes" name="boxnow_allow_returns" value="1" <?php checked(get_option('boxnow_allow_returns', '1'), '1'); ?>>
                             <label for="display_allowReturns_yes">Yes</label>
                         </p>
                         <p>
-                            <input type="radio" id="display_allow_returns_no" name="boxnow_allow_returns" value="0" <?php checked(get_option('boxnow_allow_returns', '0'), '0'); ?>>
+                            <input type="radio" id="display_allow_returns_no" name="boxnow_allow_returns" value="0" <?php checked(get_option('boxnow_allow_returns', '1'), '0'); ?>>
                             <label for="display_allowReturns_no">No</label>
                         </p>
                     </div>
