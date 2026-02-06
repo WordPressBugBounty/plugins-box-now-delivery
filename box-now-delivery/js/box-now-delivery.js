@@ -1,4 +1,45 @@
 (function ($) {
+    let lockerSelected = false;
+
+    // Define trusted domains (must match the sender's origin exactly)
+    const allowedOrigins = [
+        "https://widget-v5.boxnow.",
+        "https://boxlockersloadfiles.blob.core.windows.net"
+    ];
+
+function handleBoxNowMessage(event) {
+    const data = event.data;
+    // Only listen for BOX NOW events
+    if (!allowedOrigins.some(allowedOrigin => event.origin.includes(allowedOrigin))){
+        return;
+    }
+    
+    // Safety check: ignore non-object messages unless it's "closeIframe"
+    if (typeof data !== "object" && data !== "closeIframe") {
+        return;
+    }
+
+    // Handle close message
+    if (
+        data === "closeIframe" ||
+        (typeof data === "object" && data !== null && data.boxnowClose !== undefined)
+    ) {
+        // Remove popup overlays/iframes
+        if (boxNowDeliverySettings.displayMode === "popup") {
+            $("#box_now_delivery_overlay").remove();
+            $("iframe[src^='https://widget-v5.boxnow.']").remove();
+            $(".boxnow-popup").remove();
+        }
+
+        return;
+    }
+
+    // Handle locker data selection
+    updateLockerDetailsContainer(data);
+    showSelectedLockerDetailsFromLocalStorage();
+    lockerSelected = true;
+}
+
     /**
      * Add the Box Now Delivery button or embedded map.
      */
@@ -29,7 +70,7 @@
      * Apply the custom styles for the Box Now Delivery button.
      */
     function applyButtonStyles() {
-        var buttonColor = boxNowDeliverySettings.buttonColor || "#6CD04E ";
+        var buttonColor = boxNowDeliverySettings.buttonColor || "#6CD04E";
 
         var styleBlock = `
       <style id="box-now-delivery-button-styles">
@@ -47,13 +88,15 @@
      * Attach click event listener to the Box Now Delivery button.
      */
     function attachButtonClickListener() {
-        $("#box_now_delivery_button").on("click", function (event) {
+        $("#box_now_delivery_button")
+        .off('click') // safety - remove any old ones
+        .on("click", function (event) {
             event.preventDefault();
             createPopupMap();
         });
     }
+
     function GetUserCountry() {
-        // Get the selected country from the billing_country select input
         let selectedCountry;
 
         // Modified if clause that mitigates for shipping, billing address and cases where only one service country is selected.
@@ -111,17 +154,7 @@
                 .append(iframe)
                 .append(lockerInfoContainer.append(lockerDetailsContainer));
 
-            // Add the load event listener to the iframe
-            iframe.on("load", function () {
-                // Add the event listener for the embedded map
-                window.addEventListener("message", function (event) {
-                    if (typeof event.data.boxnowClose !== "undefined") {
-                        // Handle the close event
-                    } else {
-                        updateLockerDetailsContainer(event.data);
-                    }
-                });
-            });
+           
         }
 
         var selected = $('input[name^="shipping_method"]:checked, input[name^="shipping_method"][type="hidden"]');
@@ -167,7 +200,6 @@
         let partnerId = boxNowDeliverySettings.partnerId;
         let postalCode = $('input[name="billing_postcode"]').val();
         let country = GetUserCountry();
-        console.log(country);
 
         if (country === "CY") {
             src = "https://widget-v5.boxnow.cy/popup.html";
@@ -203,19 +235,6 @@
                 transform: "translate(-50%, -50%)",
                 zIndex: 9999,
             },
-        });
-
-        // Add an event listener for the 'message' event
-        window.addEventListener("message", function (event) {
-            if (
-                event.data === "closeIframe" ||
-                event.data.boxnowClose !== undefined
-            ) {
-                $("#box_now_delivery_overlay").remove(); // Add this line
-                iframe.remove();
-            } else {
-                updateLockerDetailsContainer(event.data);
-            }
         });
 
         createOverlay();
@@ -259,19 +278,25 @@
         });
     }
 
-    // Add the event listener
-    window.addEventListener("message", function (event) {
-        if (typeof event.data.boxnowClose !== "undefined") {
-            // Handle the close event
-            if (boxNowDeliverySettings.displayMode === "popup") {
-                $(".boxnow-popup").remove();
-            }
-        } else {
-            updateLockerDetailsContainer(event.data);
-            showSelectedLockerDetailsFromLocalStorage();
+function sendLockerToServer(lockerId) {
+        if (!lockerId) {
+            return;
         }
-    });
 
+        $.ajax({
+            url: boxNowDeliverySettings.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'boxnow_set_locker',
+                locker_id: lockerId,
+                nonce: boxNowDeliverySettings.nonce
+            },
+            success: function(response) {
+            },
+            error: function(xhr, status, error) {
+            }
+        });
+    }
     /**
      * Update the locker details container with selected locker data.
      *
@@ -325,20 +350,20 @@
 
         // Define the content for English.
         var englishContent = `
-<div style="font-family: Verdana , Arial, sans-serif;font-weight:300;margin-top: -7px;">
-  <p style="margin: 1px 0px; color: #61bb46;font-weight: 400;height: 25px;"><b>Selected Locker</b></p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_name}</p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_address}</p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_postal_code}</p>
+<div id="locker-info">
+  <p class="locker-title"><b>Selected Locker</b></p>
+  <p class="locker-detail">${locker_name}</p>
+  <p class="locker-detail">${locker_address}</p>
+  <p class="locker-detail">${locker_postal_code}</p>
 </div>`;
 
         // Define the content for Greek.
         var greekContent = `
-<div style="font-family: Verdana , Arial, sans-serif;font-weight:300;margin-top: -7px;">
-  <p style="margin: 1px 0px; color: #61bb46;font-weight: 400;height: 25px;"><b>Επιλεγμένο locker</b></p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_name}</p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_address}</p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${locker_postal_code}</p>
+<div id="locker-info">
+  <p class="locker-title"><b>Επιλεγμένο Locker</b></p>
+  <p class="locker-detail">${locker_name}</p>
+  <p class="locker-detail">${locker_address}</p>
+  <p class="locker-detail">${locker_postal_code}</p>
 </div>`;
 
         // Choose the correct content based on the language.
@@ -360,6 +385,8 @@
         } else {
             $("#box_now_selected_locker_input").val(JSON.stringify(lockerData));
         }
+
+        sendLockerToServer(locker_id);
 
         if (boxNowDeliverySettings.displayMode === "popup") {
             $("#box_now_delivery_overlay").remove();
@@ -399,17 +426,31 @@
         var boxButton = $("#box_now_delivery_button");
 
         // Set the background color once since it's common for all conditions
-        boxButton.css("background-color", boxNowDeliverySettings.buttonColor);
+        var buttonColor = boxNowDeliverySettings.buttonColor || "#6CD04E";
+        boxButton.css("background-color", buttonColor);
 
-        if ($("#shipping_method_0_box_now_delivery").is(":checked")) {
+        var isSelected = false;
+        if(boxNowDeliverySettings.page === "thankyou_page"){
+            isSelected = true;
+        }else if (boxNowDeliverySettings.page === "checkout"){
+            // Radio-based selection
+            var radio = $('input[type="radio"][name="shipping_method[0]"]:checked');
+            if (radio.length) {
+                isSelected = radio.val() === 'box_now_delivery';
+            }
+            // Hidden input fallback (some themes/flows)
+            if (!isSelected) {
+                var hiddenVal = $('input[type="hidden"][name="shipping_method[0]"]').val();
+                if (hiddenVal) {
+                    isSelected = hiddenVal === 'box_now_delivery';
+                }
+            }
+        }
+
+        if (isSelected) {
             boxButton.show();
-        } else if ($("shipping_method_[0]").is(":checked")) {
+        } else {
             boxButton.hide();
-        } else if (
-            $('input[type="hidden"][name="shipping_method[0]"]').val() ===
-            "box_now_delivery"
-        ) {
-            boxButton.show();
         }
     }
 
@@ -426,11 +467,27 @@
     }
 
     /**
-     * Remove the selected locker details from local storage and hide the locker details container
+     * Remove the selected locker details from Session.
      */
-    function clearSelectedLockerDetails() {
-        localStorage.removeItem("box_now_selected_locker");
-        $("#box_now_selected_locker_details").hide().empty();
+    function removeLockerFromSession() {
+        try {
+            $.ajax({
+                url: boxNowDeliverySettings.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'bndp_clear_boxnow_locker',
+                    nonce: boxNowDeliverySettings.nonce
+                },
+                success: function(response) {
+                },
+                error: function(xhr, status, error) {
+                    console.warn("removeLockerFromSession response error: ", error);
+                }
+            });
+
+        } catch (e) {
+            console.error("removeLockerFromSession error: ", e);
+        }
     }
 
     // Document ready event
@@ -461,6 +518,7 @@
         }
 
         init();
+        window.addEventListener("message", handleBoxNowMessage, false);
 
         // Show the selected locker details from localStorage
         showSelectedLockerDetailsFromLocalStorage();
@@ -478,9 +536,31 @@
         );
 
         addOrderValidation();
+        
+        // When shipping country changes clear selected locker from local storage and session
+        $(document.body).on("change", "#shipping_country", function () {
+            localStorage.removeItem("box_now_selected_locker");
+            $("#box_now_selected_locker_details").hide().empty();
+            removeLockerFromSession();
+        });
 
-        $('body').on('change', '#billing_country', function () {
-            clearSelectedLockerDetails();
+        // When billing_country country changes and the user selected the option 
+        // to ship to same address as billing, then procceed to clear selected 
+        // locker from local storage and session
+        $(document.body).on("change", "#billing_country", function () {
+            if (!$('#ship-to-different-address-checkbox').is(":checked")) {
+                localStorage.removeItem("box_now_selected_locker");
+                $("#box_now_selected_locker_details").hide().empty();
+                removeLockerFromSession();
+            }
+        });
+
+        // When the user toggles the option to ship to different address,
+        // procceed to clear selected locker from local storage and session
+        $(document.body).on("change", "#ship-to-different-address-checkbox", function () {
+            localStorage.removeItem("box_now_selected_locker");
+            $("#box_now_selected_locker_details").hide().empty();
+            removeLockerFromSession();
         });
     });
 })(jQuery);

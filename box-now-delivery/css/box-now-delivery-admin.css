@@ -2,6 +2,25 @@
     font-family: Arial, sans-serif;
 }
 
+#box_now_find_button {
+    background-color:#44d62d;
+	border-radius:28px;
+	border:3px solid #18ab29;
+	display:inline-block;
+	cursor:pointer;
+	color:#ffffff;
+	font-family:Arial;
+	font-size:17px;
+	padding:16px 31px;
+	text-decoration:none;
+	text-shadow:0px 1px 0px #044e62;
+}
+
+#box_now_find_button:hover {
+    box-shadow: 0px 2px 0px 0px rgba(0, 0, 0, 0.1);
+    transform: translateY(2px);
+}
+
 .wrap .container {
     background-color: #f9f9f9;
     border-radius: 10px;

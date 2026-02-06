@@ -13,7 +13,7 @@ function box_now_delivery_menu()
     );
 }
 
-require_once 'box-now-delivery-validation.php';
+require_once plugin_dir_path(__FILE__) .'box-now-delivery-validation.php';
 
 // Enqueue admin scripts
 function box_now_delivery_enqueue_admin_scripts($hook)
@@ -35,6 +35,10 @@ function box_now_delivery_options()
         <?php settings_fields('box-now-delivery-settings-group'); ?>
         <?php do_settings_sections('box-now-delivery-settings-group'); ?>
         <label style="width: 100%; float: left;">Thank you for choosing BOX NOW as your delivery option! To learn more about our services, visit our <a href="https://boxnow.gr/">website</a> or contact us at <a href="mailto:info@boxnow.gr">info@boxnow.gr</a>.</label>
+        <br><br>
+        <label style="width: 100%; float: left;">
+        <a href="https://boxnow.gr/en/diy/eshops/plugins/woocommerce" target="_blank" rel="noopener noreferrer">Open BOX NOW plugin configuration guide</a>
+        </label>
         <br>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
             <input type="hidden" name="action" value="boxnow-settings-save">
@@ -104,11 +108,11 @@ function box_now_delivery_options()
                     <h2 style="width: 100%; float: left;">Voucher Creation Mode</h2>
                     <div style="width: 100%; float: left;">
                         <p>
-                            <input type="radio" id="display_voucher_button" name="boxnow_voucher_option" value="button" <?php checked(get_option('boxnow_voucher_option', 'email'), 'button'); ?>>
+                            <input type="radio" id="display_voucher_button" name="boxnow_voucher_option" value="button" <?php checked(get_option('boxnow_voucher_option', 'button'), 'button'); ?>>
                             <label for="display_voucher_button">Manual Voucher Issuance (Created and printed from the Order page)</label>
                         </p>
                         <p>
-                            <input type="radio" id="send_voucher_email" name="boxnow_voucher_option" value="email" <?php checked(get_option('boxnow_voucher_option', 'email'), 'email'); ?>>
+                            <input type="radio" id="send_voucher_email" name="boxnow_voucher_option" value="email" <?php checked(get_option('boxnow_voucher_option', 'button'), 'email'); ?>>
                             <label for="send_voucher_email">Automatic Voucher Issuance (Sent by email when the order status changes to Completed)</label>
                         </p>
                     </div>
@@ -152,6 +156,22 @@ function box_now_delivery_options()
                             <input type="radio" id="gps_tracking_off" name="boxnow_gps_tracking" value="off" <?php checked(get_option('boxnow_gps_tracking', 'on'), 'off'); ?>>
                             <label for="gps_tracking_off">GPS OFF</label>
                         </p>
+                    </div>
+
+					<!-- Thank you page -->
+					<h3 style="width: 100%; float: left;">Allow Locker Change on Thank You Page</h3>
+                    <div style="width: 100%; float: left;">
+                        <p>
+                            <input type="radio" id="boxnow_thankyou_page_yes" name="boxnow_thankyou_page" value="1" <?php checked(get_option('boxnow_thankyou_page', '1'), '1'); ?>>
+                            <label for="boxnow_thankyou_page_yes">Yes</label>
+                        </p>
+                        <p>
+                            <input type="radio" id="boxnow_thankyou_page_no" name="boxnow_thankyou_page" value="0" <?php checked(get_option('boxnow_thankyou_page', '1'), '0'); ?>>
+                            <label for="boxnow_thankyou_page_no">No</label>
+                        </p>
+                    </div>
+                    <div style="max-width: 550px; float: left;">
+                        <p>*Allows users to change their selected locker on the Thank You page after a successful order.</p>
                     </div>
 
                     <!-- Button options -->

@@ -64,6 +64,9 @@ class BNDP_Serializer
         if (isset($_POST['boxnow_locker_not_selected_message'])) {
             update_option('boxnow_locker_not_selected_message', sanitize_text_field($_POST['boxnow_locker_not_selected_message']));
         }
+        if (isset($_POST['boxnow_thankyou_page'])) {
+            update_option('boxnow_thankyou_page', sanitize_text_field($_POST['boxnow_thankyou_page']));
+        }
 
         $this->redirect();
     }

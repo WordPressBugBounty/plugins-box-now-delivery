@@ -13,7 +13,7 @@ add_action('transition_post_status', 'boxnow_log_order_status_transition', 10, 3
 function boxnow_log_order_status_transition($new_status, $old_status, $post)
 {
     if ('shop_order' === $post->post_type) {
-        error_log("Order ID: {$post->ID} status transitioned from {$old_status} to {$new_status}");
+        //error_log("Order ID: {$post->ID} status transitioned from {$old_status} to {$new_status}");
     }
 }
 
@@ -28,12 +28,6 @@ function boxnow_register_boxnow_canceled_order_status()
         'label_count' => _n_noop('Box Now Canceled <span class="count">(%s)</span>', 'Box Now Canceled <span class="count">(%s)</span>', 'box-now-delivery')
     ));
 }
-
-/**function boxnow_add_canceled_order_status($order_statuses)
-{
-    $order_statuses['wc-boxnow-canceled'] = __('BOX NOW Cancel Order', 'box-now-delivery');
-    return $order_statuses;
-}**/
 
 function boxnow_add_cancel_order_button($actions, $order)
 {
@@ -59,7 +53,7 @@ function boxnow_add_cancel_order_button_css()
 
 function boxnow_order_canceled($order_id, $old_status, $new_status, $order)
 {
-    error_log("Order ID: $order_id status transitioned from $old_status to $new_status");
+    //error_log("Order ID: $order_id status transitioned from $old_status to $new_status");
 
     // Check if the new status is "wc-boxnow-canceled" or "boxnow-canceled"
     if ($new_status != 'wc-boxnow-canceled' && $new_status != 'boxnow-canceled') {
@@ -71,12 +65,12 @@ function boxnow_order_canceled($order_id, $old_status, $new_status, $order)
 
         if (!empty($parcel_id)) {
             $result = boxnow_send_cancellation_request($parcel_id);
-            error_log("Box Now Cancellation Result: " . print_r($result, true));
+            //error_log("Box Now Cancellation Result: " . print_r($result, true));
         } else {
-            error_log("No parcel ID found for order ID: $order_id");
+            //error_log("No parcel ID found for order ID: $order_id");
         }
     } else {
-        error_log("Order ID $order_id does not have Box Now Delivery shipping method");
+        //error_log("Order ID $order_id does not have Box Now Delivery shipping method");
     }
 }
 
@@ -94,15 +88,15 @@ function boxnow_send_cancellation_request($parcel_id)
     ]);
 
     if (is_wp_error($response)) {
-        error_log("Box Now Cancellation Error: " . $response->get_error_message());
+        //error_log("Box Now Cancellation Error: " . $response->get_error_message());
         return $response->get_error_message();
     } else {
         $response_body = wp_remote_retrieve_body($response);
-        error_log("Box Now Cancellation API Response: \n" . $response_body); // Log the API response
+        //error_log("Box Now Cancellation API Response: \n" . $response_body); // Log the API response
 
         // Check for empty response and treat as success
         if (empty($response_body)) {
-            error_log("Box Now Cancellation Result: Empty response, considering as success");
+            //error_log("Box Now Cancellation Result: Empty response, considering as success");
             return 'success';
         }
 
@@ -110,7 +104,7 @@ function boxnow_send_cancellation_request($parcel_id)
         if (isset($response_data['success']) && $response_data['success'] == true) {
             return 'success';
         } else {
-            error_log("Something went wrong: " . (isset($response_data['error']) ? $response_data['error'] : 'Unknown error'));
+            //error_log("Something went wrong: " . (isset($response_data['error']) ? $response_data['error'] : 'Unknown error'));
             return 'failed';
         }
     }

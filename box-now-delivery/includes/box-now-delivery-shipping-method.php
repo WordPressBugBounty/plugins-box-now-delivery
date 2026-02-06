@@ -1,7 +1,10 @@
 <?php
 
+/**
+ * Avoiding Direct File Access
+ */
 if (!defined('ABSPATH')) {
-    exit; // Exit if accessed directly.
+    exit;
 }
 
 add_action('plugins_loaded', 'box_now_delivery_shipping_method');
