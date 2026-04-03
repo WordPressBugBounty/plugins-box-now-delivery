@@ -1,5 +1,9 @@
 <?php
 
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
 function box_now_delivery_menu()
 {
     add_menu_page(
@@ -37,7 +41,7 @@ function box_now_delivery_options()
         <label style="width: 100%; float: left;">Thank you for choosing BOX NOW as your delivery option! To learn more about our services, visit our <a href="https://boxnow.gr/">website</a> or contact us at <a href="mailto:info@boxnow.gr">info@boxnow.gr</a>.</label>
         <br><br>
         <label style="width: 100%; float: left;">
-        <a href="https://boxnow.gr/en/diy/eshops/plugins/woocommerce" target="_blank" rel="noopener noreferrer">Open BOX NOW plugin configuration guide</a>
+        <a href="https://boxnow.gr/en/diy/eshops/plugins/woocommerce" target="_blank" rel="noopener noreferrer">Need help with the configuration? See BOX NOW plugin configuration guide</a>
         </label>
         <br>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -171,7 +175,7 @@ function box_now_delivery_options()
                         </p>
                     </div>
                     <div style="max-width: 550px; float: left;">
-                        <p>*Allows users to change their selected locker on the Thank You page after a successful order.</p>
+                        <p>*Allows customers to change their selected locker on the Thank You page after a successful order.</p>
                     </div>
 
                     <!-- Button options -->
@@ -205,14 +209,91 @@ function box_now_delivery_options()
     <?php
 }
 
-function box_now_delivery_settings()
+function box_now_delivery_admin_init()
 {
+    // 1. Initialize serializer
     $serializer = new BNDP_Serializer();
     $serializer->init();
+
+    /****************************************************/
+    /****************************************************/
+    /****************************************************/
+    /****************************************************/
+
+    // 2. Perform version migrations only once per request
+    static $already_ran_migrations = false;
+    if ($already_ran_migrations) {
+        return;
+    }
+
+    // Skip AJAX requests
+    if (defined('DOING_AJAX') && DOING_AJAX) {
+        return;
+    }
+
+    $already_ran_migrations = true;
+    $installed_version = get_option('boxnow_plugin_version', '0.0.0');
+
+    if (version_compare($installed_version, BOX_NOW_DELIVERY_VERSION, '<')) {
+        if (function_exists('boxnow_remove_legacy_shipping_method_fields')) {
+            boxnow_remove_legacy_shipping_method_fields();
+        }
+
+        update_option('boxnow_plugin_version', BOX_NOW_DELIVERY_VERSION);
+    }
 }
 
 add_action('admin_menu', 'box_now_delivery_menu');
-add_action('admin_init', 'box_now_delivery_settings');
+add_action('admin_init', 'box_now_delivery_admin_init');
+
+function boxnow_remove_legacy_shipping_method_fields() {
+    // Safety check – exit if WooCommerce is not fully ready
+    if (!function_exists('WC') || !WC()->countries || !class_exists('WC_Shipping_Zones')) {
+        return;
+    }
+
+    // legacy fields to remove from shipping method settings
+    $legacy_fields = [
+        'max_length',
+        'max_width',
+        'max_height',
+        'max_dimensions_unit',
+    ];
+
+    // Get all zones. Add default zone (ID 0)
+    $zones = WC_Shipping_Zones::get_zones();
+    $zones[] = [ 'zone_id' => 0 ];
+
+    foreach ($zones as $zone_data) {
+        $zone = new WC_Shipping_Zone($zone_data['zone_id']);
+
+        foreach ($zone->get_shipping_methods() as $method) {
+            if ($method->id !== 'box_now_delivery') {
+                continue;
+            }
+
+            $option_key = 'woocommerce_' . $method->id . '_' . $method->instance_id . '_settings';
+            $settings   = get_option($option_key, []);
+
+            if (!is_array($settings)) {
+                continue;
+            }
+
+            $changed = false;
+            foreach ($legacy_fields as $field) {
+                if (isset($settings[$field])) {
+                    unset($settings[$field]);
+                    $changed = true;
+                }
+            }
+
+            if ($changed) {
+                update_option($option_key, $settings);
+            }
+        }
+    }
+
+}
 
 function box_now_delivery_enqueue_admin_styles($hook)
 {
@@ -220,7 +301,7 @@ function box_now_delivery_enqueue_admin_styles($hook)
         return;
     }
 
-    wp_register_style('box_now_delivery_admin_styles', plugin_dir_url(__FILE__) . '../css/box-now-delivery-admin.css');
+    wp_register_style('box_now_delivery_admin_styles', plugin_dir_url(__FILE__) . '../css/box-now-delivery-admin.css', array(), BOX_NOW_DELIVERY_VERSION);
     wp_enqueue_style('box_now_delivery_admin_styles');
 }
 

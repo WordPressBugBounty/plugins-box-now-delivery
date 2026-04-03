@@ -1,52 +1,70 @@
 (function ($) {
     let lockerSelected = false;
+    let iframeObserver = null;
+    let popupIframe = null;
 
-    // Define trusted domains (must match the sender's origin exactly)
-    const allowedOrigins = [
-        "https://widget-v5.boxnow.",
-        "https://boxlockersloadfiles.blob.core.windows.net"
-    ];
+    const boxNowTrustedOriginRegex = /^https:\/\/.*\.boxnow\..*$/;
 
-function handleBoxNowMessage(event) {
-    const data = event.data;
-    // Only listen for BOX NOW events
-    if (!allowedOrigins.some(allowedOrigin => event.origin.includes(allowedOrigin))){
-        return;
-    }
-    
-    // Safety check: ignore non-object messages unless it's "closeIframe"
-    if (typeof data !== "object" && data !== "closeIframe") {
-        return;
-    }
-
-    // Handle close message
-    if (
-        data === "closeIframe" ||
-        (typeof data === "object" && data !== null && data.boxnowClose !== undefined)
-    ) {
-        // Remove popup overlays/iframes
-        if (boxNowDeliverySettings.displayMode === "popup") {
-            $("#box_now_delivery_overlay").remove();
-            $("iframe[src^='https://widget-v5.boxnow.']").remove();
-            $(".boxnow-popup").remove();
+    function handleBoxNowMessage(event) {
+        // 1. Must be from our iframe
+        if (boxNowDeliverySettings.displayMode === "popup" && (!popupIframe || event.source !== popupIframe.contentWindow)) {
+            return;
         }
 
-        return;
+        const data = event.data;
+        const origin = event.origin;
+        const isAllowed = boxNowTrustedOriginRegex.test(origin);
+
+        // Ignore untrusted origins. Only listen for BOX NOW events
+        if(!isAllowed){
+            // TODO 3.1.1: console error logs untrusted origins from other plugins that may try to postMessage. This may lead to console flooding. 
+            //console.error('BOX NOW Delivery SHORTCODE: untrusted origin, ignoring message', { origin });
+            closeBoxNowPopup()
+            return
+        }
+        
+        // Safety check: ignore non-object messages unless it's "closeIframe"
+        if (typeof data !== "object" && data !== "closeIframe") {
+            return;
+        }
+
+        // Now it's safe to process the message
+        // Handle close message
+        if (data === "closeIframe" || (typeof data === "object" && data !== null && data.boxnowClose !== undefined)) {
+            // Remove popup overlays/iframes
+            if (boxNowDeliverySettings.displayMode === "popup") {
+                closeBoxNowPopup(); 
+            }
+            return;
+        }
+
+        // Handle locker data selection
+        updateLockerDetailsContainer(data);
+        showSelectedLockerDetailsFromLocalStorage();
+        lockerSelected = true;
     }
 
-    // Handle locker data selection
-    updateLockerDetailsContainer(data);
-    showSelectedLockerDetailsFromLocalStorage();
-    lockerSelected = true;
-}
+    function closeBoxNowPopup() {
+        popupIframe = null;
+
+        if (iframeObserver) {
+            iframeObserver.disconnect();
+            iframeObserver = null;
+        }
+
+        $("#box_now_delivery_iframe_popup").remove();
+        $("#box_now_delivery_overlay").remove();
+    }
+
 
     /**
-     * Add the Box Now Delivery button or embedded map.
+     * Add the BOX NOW Delivery button or embedded map.
      */
     function addButton() {
+        var useEmbedded = boxNowDeliverySettings.displayMode === "embedded" && boxNowDeliverySettings.page === "checkout";
         if (
             $("#box_now_delivery_button").length === 0 &&
-            boxNowDeliverySettings.displayMode === "popup"
+            !useEmbedded
         ) {
             var buttonText = boxNowDeliverySettings.buttonText || "Pick a locker";
 
@@ -57,17 +75,29 @@ function handleBoxNowMessage(event) {
             );
 
             attachButtonClickListener();
-        } else if (boxNowDeliverySettings.displayMode === "embedded") {
-            $('label[for="shipping_method_0_box_now_delivery"]').after(
-                '<div id="box_now_delivery_embedded_map" style="display:none;"></div>'
-            );
+        } else if (useEmbedded) {
+            $("#box_now_delivery_button").remove();
+            $("#box_now_delivery_iframe_popup").remove();
+            $("#box_now_delivery_overlay").remove();
+            popupIframe = null;
+
+            if (iframeObserver) {
+                iframeObserver.disconnect();
+                iframeObserver = null;
+            }
+
+            if ($("#box_now_delivery_embedded_map").length === 0) {
+                $('label[for="shipping_method_0_box_now_delivery"]').after(
+                    '<div id="box_now_delivery_embedded_map" style="display:none;"></div>'
+                );
+            }
             embedMap();
         }
         applyButtonStyles();
     }
 
     /**
-     * Apply the custom styles for the Box Now Delivery button.
+     * Apply the custom styles for the BOX NOW Delivery button.
      */
     function applyButtonStyles() {
         var buttonColor = boxNowDeliverySettings.buttonColor || "#6CD04E";
@@ -85,7 +115,7 @@ function handleBoxNowMessage(event) {
     }
 
     /**
-     * Attach click event listener to the Box Now Delivery button.
+     * Attach click event listener to the BOX NOW Delivery button.
      */
     function attachButtonClickListener() {
         $("#box_now_delivery_button")
@@ -157,6 +187,7 @@ function handleBoxNowMessage(event) {
            
         }
 
+        $("#box_now_delivery_button").hide();
         var selected = $('input[name^="shipping_method"]:checked, input[name^="shipping_method"][type="hidden"]');
 
         if (selected.length && selected.val().includes('box_now_delivery')) {
@@ -182,11 +213,7 @@ function handleBoxNowMessage(event) {
         });
 
         overlay.on("click", function () {
-            $("#box_now_delivery_overlay").remove();
-            $("iframe[src^='https://widget-v5.boxnow.gr/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.cy/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.bg/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.hr/popup.html']").remove();
+            closeBoxNowPopup()
         });
 
         $("body").append(overlay);
@@ -196,13 +223,19 @@ function handleBoxNowMessage(event) {
      * Create an iframe for the popup map.
      */
     function createPopupMap() {
+        // Prevent duplicate popups
+        if ($("#box_now_delivery_iframe_popup").length) {
+            return;
+        }
+
+        let src;
         let gpsOption = boxNowDeliverySettings.gps_option;
         let partnerId = boxNowDeliverySettings.partnerId;
         let postalCode = $('input[name="billing_postcode"]').val();
         let country = GetUserCountry();
 
         if (country === "CY") {
-            src = "https://widget-v5.boxnow.cy/popup.html";
+            src = "https://widget-v5.boxnow.cy/popup.html"; // TODO 3.1.1: update when available
         } else if (country === "BG") {
             src = "https://widget-v5.boxnow.bg/popup.html";
         } else if (country === "HR") {
@@ -211,7 +244,11 @@ function handleBoxNowMessage(event) {
             src = "https://widget-v5.boxnow.gr/popup.html";
         }
 
-        partnerId ? src += "?partnerId=" + partnerId + "&" : "?";
+        if (partnerId) {
+            src += "?partnerId=" + partnerId + "&";
+        } else {
+            src += "?";
+        }
 
         if (gpsOption === "off") {
             src +=
@@ -223,7 +260,9 @@ function handleBoxNowMessage(event) {
         }
 
         let iframe = $("<iframe>", {
+            id: "box_now_delivery_iframe_popup",
             src: src,
+            allow: "geolocation",
             css: {
                 position: "fixed",
                 top: "50%",
@@ -236,22 +275,52 @@ function handleBoxNowMessage(event) {
                 zIndex: 9999,
             },
         });
+        popupIframe = iframe[0];
 
         createOverlay();
         $("body").append(iframe);
+        observeIframeRemoval(iframe);
+    }
+
+    function observeIframeRemoval(iframe) {
+        if (!iframe || typeof MutationObserver === "undefined") return;
+
+        // Prevent multiple observers
+        if (iframeObserver) {
+            iframeObserver.disconnect();
+        }
+        
+        iframeObserver= new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.removedNodes) {
+                    if (node === iframe[0]) {
+                        // iframe disappeared for ANY reason
+                        $("#box_now_delivery_overlay").remove();
+                        $(".boxnow-popup").remove();
+                        iframeObserver.disconnect();
+                        iframeObserver = null;
+
+                        return;
+                    }
+                }
+            }
+        });
+
+        iframeObserver.observe(document.body, { childList: true });
     }
 
     /**
      * Create an iframe for the embedded map.
      */
     function createEmbeddedIframe() {
+        let src;
         let gpsOption = boxNowDeliverySettings.gps_option;
         let partnerId = boxNowDeliverySettings.partnerId;
         let postalCode = $('input[name="billing_postcode"]').val();
         let country = GetUserCountry();
 
         if (country === "CY") {
-            src = "https://widget-v5.boxnow.cy";
+            src = "https://widget-v5.boxnow.cy"; // TODO 3.1.1: update when available
         } else if (country === "BG") {
             src = "https://widget-v5.boxnow.bg";
         } else if (country === "HR") {
@@ -260,7 +329,11 @@ function handleBoxNowMessage(event) {
             src = "https://widget-v5.boxnow.gr";
         }
 
-        partnerId ? src += "?partnerId=" + partnerId + "&" : "?";
+        if (partnerId) {
+            src += "?partnerId=" + partnerId + "&";
+        } else {
+            src += "?";
+        }
 
         if (gpsOption === "off") {
             src += "gps=no&zip=" + encodeURIComponent(postalCode);
@@ -278,7 +351,7 @@ function handleBoxNowMessage(event) {
         });
     }
 
-function sendLockerToServer(lockerId) {
+    function sendLockerToServer(lockerId) {
         if (!lockerId) {
             return;
         }
@@ -297,6 +370,7 @@ function sendLockerToServer(lockerId) {
             }
         });
     }
+
     /**
      * Update the locker details container with selected locker data.
      *
@@ -322,7 +396,7 @@ function sendLockerToServer(lockerId) {
 
         localStorage.setItem("box_now_selected_locker", JSON.stringify(lockerData));
 
-        // Ensure the locker details container is added after the Box Now Delivery button
+        // Ensure the locker details container is added after the BOX NOW Delivery button
         if ($("#box_now_selected_locker_details").length === 0) {
             $("#box_now_delivery_button").after(
                 '<div id="box_now_selected_locker_details" style="display:none;"></div>'
@@ -389,11 +463,7 @@ function sendLockerToServer(lockerId) {
         sendLockerToServer(locker_id);
 
         if (boxNowDeliverySettings.displayMode === "popup") {
-            $("#box_now_delivery_overlay").remove();
-            $("iframe[src^='https://widget-v5.boxnow.gr/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.cy/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.bg/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.hr/popup.html']").remove();
+            closeBoxNowPopup()
         }
     }
 
@@ -409,10 +479,10 @@ function sendLockerToServer(lockerId) {
     }
 
     /**
-     * Toggle the Box Now Delivery button or embedded map based on the selected shipping method.
+     * Toggle the BOX NOW Delivery button or embedded map based on the selected shipping method.
      */
     function toggleBoxNowDelivery() {
-        if (boxNowDeliverySettings.displayMode === "popup") {
+        if (boxNowDeliverySettings.displayMode === "popup" || boxNowDeliverySettings.page !== "checkout") {
             toggleBoxNowDeliveryButton();
         } else if (boxNowDeliverySettings.displayMode === "embedded") {
             embedMap();
@@ -420,7 +490,7 @@ function sendLockerToServer(lockerId) {
     }
 
     /**
-     * Toggle the Box Now Delivery button visibility based on the selected shipping method.
+     * Toggle the BOX NOW Delivery button visibility based on the selected shipping method.
      */
     function toggleBoxNowDeliveryButton() {
         var boxButton = $("#box_now_delivery_button");
@@ -518,6 +588,7 @@ function sendLockerToServer(lockerId) {
         }
 
         init();
+        window.removeEventListener("message", handleBoxNowMessage); // Avoid multiple listeners via AJAX in some themes
         window.addEventListener("message", handleBoxNowMessage, false);
 
         // Show the selected locker details from localStorage

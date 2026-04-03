@@ -2,6 +2,9 @@
     let carrierName = document.getElementById('carrier_name');
     let shippingCountry = document.getElementById('shipping_country');
     let billingCountry = document.getElementById('billing_country');
+    let popupIframe = null;
+
+    const boxNowTrustedOriginRegex = /^https:\/\/.*\.boxnow\..*$/;
 
     $(document).ready(function() {
         attachButtonClickListener()
@@ -18,17 +21,40 @@
 
         // Add an event listener for the 'message' event
         window.addEventListener("message", function (event) {
+            // 1️. Must be from our iframe
+            if (!popupIframe || event.source !== popupIframe.contentWindow) {
+                return;
+            }
+
+            const data = event.data;
+            const origin = event.origin;
+            const isAllowed = boxNowTrustedOriginRegex.test(origin);
+
+            // Ignore untrusted origins. Only listen for BOX NOW events
+            if(!isAllowed){
+                // TODO 3.1.1: console error logs untrusted origins from other plugins that may try to postMessage. This may lead to console flooding. 
+                //console.error('BOX NOW Delivery Thank You page: untrusted origin, ignoring message', { origin });
+                closeBoxNowPopup()
+                return
+            }
+
+            // Now it's safe to process the message
             if (
-                event.data === "closeIframe" ||
-                event.data.boxnowClose !== undefined
+                data === "closeIframe" ||
+                data.boxnowClose !== undefined
             ) {
-                $("#box_now_delivery_overlay").remove();
-                $("#boxnow_widget_thank_you_page_iframe").remove();
+                closeBoxNowPopup()
             } else {
-                updateLockerDetailsContainer(event.data);
+                updateLockerDetailsContainer(data);
             }
         });
 
+    }
+
+    function closeBoxNowPopup() {
+        popupIframe = null;
+        $("#box_now_delivery_overlay").remove();
+        $("#boxnow_widget_thank_you_page_iframe").remove();
     }
 
     
@@ -79,7 +105,9 @@
         localStorage.setItem("box_now_selected_locker", JSON.stringify(lockerData));
 
         // Fetch order id and secret
-        var order_id = window.location.pathname.split('/').filter(segment => /^\d+$/.test(segment))[0];
+        var order_id = (typeof thankyou_boxnow !== 'undefined' && thankyou_boxnow.order_id) ?
+            thankyou_boxnow.order_id :
+            window.location.pathname.split('/').filter(segment => /^\d+$/.test(segment))[0];
         var order_key = new URLSearchParams(window.location.search).get('key');
 
         // Try to select elements and apply styles
@@ -98,13 +126,14 @@
 
         // Fire the AJAX request to save locker
         jQuery.ajax({
-            url: window.ajaxurl || '/wp-admin/admin-ajax.php',
+            url: (typeof thankyou_boxnow !== 'undefined' && thankyou_boxnow.ajax_url) ? thankyou_boxnow.ajax_url : (window.ajaxurl || '/wp-admin/admin-ajax.php'),
             method: 'POST',
             data: {
                 action: 'thankyou_php_boxnow',
                 order_id: order_id,
                 _boxnow_locker_id: locker_id,
-                order_key: order_key
+                order_key: order_key,
+                nonce: (typeof thankyou_boxnow !== 'undefined' && thankyou_boxnow.nonce) ? thankyou_boxnow.nonce : ''
             },
             success: function (response) {
                 if (response.success) {
@@ -119,11 +148,7 @@
             }
         });
         if (boxNowDeliverySettings.displayMode === "popup") {
-            $("#box_now_delivery_overlay").remove();
-            $("iframe[src^='https://widget-v5.boxnow.gr/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.cy/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.bg/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.hr/popup.html']").remove();
+            closeBoxNowPopup();
         }
     }
 
@@ -142,11 +167,7 @@
         });
 
         overlay.on("click", function () {
-            $("#box_now_delivery_overlay").remove();
-            $("iframe[src^='https://widget-v5.boxnow.gr/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.cy/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.bg/popup.html']").remove();
-            $("iframe[src^='https://widget-v5.boxnow.hr/popup.html']").remove();
+            closeBoxNowPopup()
         });
 
         $("body").append(overlay);
@@ -159,7 +180,7 @@
         let country = GetUserCountry();
 
         if (country === "CY") {
-            src = "https://widget-v5.boxnow.cy/popup.html";
+            src = "https://widget-v5.boxnow.cy/popup.html"; // TODO 3.1.1: update when available
         } else if (country === "BG") {
             src = "https://widget-v5.boxnow.bg/popup.html";
         } else if (country === "HR") {
@@ -182,6 +203,7 @@
         let iframe = $("<iframe>", {
             id: "boxnow_widget_thank_you_page_iframe",
             src: src,
+            allow: "geolocation",
             css: {
                 position: "fixed",
                 top: "50%",
@@ -194,6 +216,7 @@
                 zIndex: 9999,
             },
         });
+        popupIframe = iframe[0];
 
         createOverlay();
         $("body").append(iframe);

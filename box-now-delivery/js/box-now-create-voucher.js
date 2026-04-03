@@ -125,10 +125,12 @@ function displayParcelIdLinks(parcelIds) {
 
     parcelIds.forEach((parcelId) => {
         const orderId = document.getElementById("box_now_order_id").value;
+        const trackingUrl = `https://t.boxnow.gr/?track=${encodeURIComponent(parcelId)}`;
 
         const newLinkHtml = `
-      <a href="#" data-parcel-id="${parcelId}" class="parcel-id-link box-now-link">&#128196; ${parcelId}</a>
+      <button class="parcel-id-link box-now-link" data-parcel-id="${parcelId}" type="button" >&#128196; ${parcelId}</button>
       <button class="cancel-voucher-btn" data-order-id="${orderId}" style="color: white; background-color: red; margin: 4px 0; border: none; border-radius: 4px; cursor: pointer; padding: 6px 12px; font-size: 13px;">&#9664; Cancel Voucher</button>
+      <a class="box-now-track-btn" href="${trackingUrl}" target="_blank" rel="noopener noreferrer" style="color: white; background-color: #f6a623; border-radius: 4px; margin: 4px 0; border: none; cursor: pointer; padding: 6px 12px; font-size: 13px; display: inline-block; text-decoration: none;">&#128230; Track Parcel</a>
       <br>`;
 
         pdfLinkContainer.innerHTML += newLinkHtml;
@@ -139,8 +141,9 @@ function displayParcelIdLinks(parcelIds) {
         if (event.target.matches(".parcel-id-link")) {
             event.preventDefault();
             const parcelId = event.target.getAttribute("data-parcel-id");
+            const orderId = document.getElementById("box_now_order_id").value;
             window.open(
-                myAjax.ajaxurl + "?action=print_box_now_voucher&parcel_id=" + parcelId,
+                myAjax.ajaxurl + "?action=print_box_now_voucher&parcel_id=" + parcelId + "&order_id=" + orderId + "&security=" + myAjax.nonce,
                 "_blank",
                 "noopener,noreferrer"
             );
@@ -196,6 +199,7 @@ function handleCancelVoucherClick(event) {
                 location.reload();
             } else {
                 console.error("Error canceling voucher:", response.data);
+                alert("Error canceling voucher: " + response.data);
             }
         },
         "json"

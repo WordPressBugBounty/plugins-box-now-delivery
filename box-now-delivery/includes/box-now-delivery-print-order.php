@@ -1,16 +1,16 @@
 <?php
 
-/**
- * Template Name: Box Now Delivery Print Order
- */
-function boxnow_print_voucher_pdf()
-{
-    // Get the parcel ID from the URL
-    $parcel_id = isset($_GET['parcel_id']) ? sanitize_text_field($_GET['parcel_id']) : '';
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
 
+/**
+ * Template Name: BOX NOW Delivery Print Order
+ */
+function boxnow_print_voucher_pdf($parcel_id = '')
+{
     if (empty($parcel_id)) {
-        echo esc_html__('Parcel ID was not found!', 'box-now-delivery');
-        exit;
+        wp_die(esc_html__('Parcel ID was not found!', 'box-now-delivery'));
     }
 
     $api_url = get_option('boxnow_api_url');
@@ -31,16 +31,11 @@ function boxnow_print_voucher_pdf()
     ));
 
     if (is_wp_error($auth_response) || 200 != wp_remote_retrieve_response_code($auth_response)) {
-        echo esc_html__('Error: Authentication failed.', 'box-now-delivery');
-        exit;
+        wp_die(esc_html__('Error: Authentication failed.', 'box-now-delivery'));
     }
 
     $auth_json = json_decode(wp_remote_retrieve_body($auth_response), true);
     $access_token = $auth_json['access_token'];
-
-    // Print voucher
-    header('Content-Type: application/pdf');
-    header('Content-Disposition: inline; filename="label.pdf"');
 
     $headers = [
         'accept' => 'application/pdf',
@@ -53,10 +48,22 @@ function boxnow_print_voucher_pdf()
     ));
 
     if (is_wp_error($response)) {
-        echo esc_html__('Error: ' . $response->get_error_message(), 'box-now-delivery');
-        exit;
+        wp_die(
+            esc_html(
+                sprintf(
+                    /* translators: %s: error message from the remote label request. */
+                    __('Error: %s', 'box-now-delivery'),
+                    $response->get_error_message()
+                )
+            )
+        );
     }
 
+    // Print voucher only after a successful PDF response is available.
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: inline; filename="label.pdf"');
+
+    // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Binary PDF response should be sent raw.
     echo wp_remote_retrieve_body($response);
 
     exit();
