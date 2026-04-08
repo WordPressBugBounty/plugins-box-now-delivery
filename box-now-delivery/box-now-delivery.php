@@ -4,7 +4,7 @@ Plugin Name: BOX NOW Delivery
 Description: A Wordpress plugin from BOX NOW to integrate your eshop with our services.
 Author: BOX NOW
 Text Domain: box-now-delivery
-Version: 3.2.0
+Version: 3.2.1
 License: GPLv2 or later
 */
 
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Plugin Version Constant
  */
-define( 'BOX_NOW_DELIVERY_VERSION', '3.2.0' );
+define( 'BOX_NOW_DELIVERY_VERSION', '3.2.1' );
 
 // Cancel order API call file
 require_once plugin_dir_path(__FILE__) . 'includes/box-now-delivery-cancel-order.php';
@@ -93,12 +93,12 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                 'page' => $page
             );
 
-            wp_enqueue_script('box-now-delivery-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery.js', array('jquery'), '1.0.0', true);
+            wp_enqueue_script('box-now-delivery-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery.js', array('jquery'), BOX_NOW_DELIVERY_VERSION, true);
             wp_enqueue_style('box-now-delivery-css', plugins_url('/css/box-now-delivery.css', __FILE__), array(), BOX_NOW_DELIVERY_VERSION);
             wp_localize_script('box-now-delivery-js', 'boxNowDeliverySettings', $settings);
             // If WooCommerce Blocks checkout is present, enqueue the Blocks-specific script
             if (boxnow_is_blocks_checkout()) {
-                wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), '1.0.0', true);
+                wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), BOX_NOW_DELIVERY_VERSION, true);
                 wp_localize_script('box-now-delivery-blocks-js', 'boxNowDeliverySettings', $settings);
             }
         }
@@ -133,7 +133,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
         if (!function_exists('wc_current_theme_is_fse_theme') || !wc_current_theme_is_fse_theme()) {
             // Still enqueue the script if blocks are used via shortcode in non-FSE themes
             if (boxnow_is_blocks_checkout()) {
-                wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), '1.0.0', true);
+                wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), BOX_NOW_DELIVERY_VERSION, true);
                 $button_color = esc_attr(get_option('boxnow_button_color', '#6CD04E '));
                 $button_text = esc_attr(get_option('boxnow_button_text', 'Pick a Locker'));
                 $settings = array(
@@ -170,7 +170,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('box-now-delivery-nonce'),
         );
-        wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), '1.0.0', true);
+        wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), BOX_NOW_DELIVERY_VERSION, true);
         wp_localize_script('box-now-delivery-blocks-js', 'boxNowDeliverySettings', $settings);
     }
     add_action('woocommerce_blocks_checkout_enqueue_data', 'bndp_add_boxnow_data_to_blocks');
@@ -1120,7 +1120,7 @@ add_action('woocommerce_admin_order_data_after_shipping_address', 'box_now_deliv
 function box_now_delivery_vouchers_js()
 {
     // Enqueue your script here if you haven't already
-    wp_enqueue_script('box-now-delivery-js', plugin_dir_url(__FILE__) . 'js/box-now-create-voucher.js', array('jquery'), '1.0', true);
+    wp_enqueue_script('box-now-delivery-js', plugin_dir_url(__FILE__) . 'js/box-now-create-voucher.js', array('jquery'), BOX_NOW_DELIVERY_VERSION, true);
 
     // Pass the nonce to your script
     wp_localize_script('box-now-delivery-js', 'myAjax', array(
@@ -1623,7 +1623,7 @@ function bndp_thankyou_php_boxnow() {
     // Enqueue JS only on Thank You page
     add_action('wp_enqueue_scripts', function () {
         if (is_order_received_page()) {
-            wp_enqueue_script('box-now-ty', plugin_dir_url(__FILE__) . 'js/box-now-ty.js', ['jquery'], '1.0', true);
+            wp_enqueue_script('box-now-ty', plugin_dir_url(__FILE__) . 'js/box-now-ty.js', ['jquery'], BOX_NOW_DELIVERY_VERSION, true);
             $settings = array(
                         'ajax_url' => admin_url('admin-ajax.php'),
                         'nonce' => wp_create_nonce('box-now-delivery-nonce'),

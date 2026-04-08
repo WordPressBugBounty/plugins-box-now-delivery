@@ -3,7 +3,7 @@ Contributors: boxnow
 Tags: delivery, boxnow
 Requires at least: 6.2
 Tested up to: 6.9
-Stable tag: 3.2.0
+Stable tag: 3.2.1
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -15,6 +15,9 @@ BOX NOW the future of parcel delivery.
 BOX NOW Delivery is used for connecting e-shops with parcel delivery services from BOX NOW.
 
 == Changelog ==
+
+= 3.2.1 =
+*Hotfix: improved asset versioning for plugin scripts and styles to reduce stale-cache issues after update, including WooCommerce admin voucher printing.
 
 = 3.2.0 =
 *Security hardening for checkout, admin order updates, voucher actions, and thank you page locker updates.
@@ -32,6 +35,9 @@ Max Package Dimensions values and unit are now fixed and can no longer be edited
 *Admin: Use WooCommerce order notes to display BOX NOW feedback to user.
 
 == Upgrade Notice ==
+
+= 3.2.1 =
+Hotfix release for stale-cache issues after update, including WooCommerce admin voucher printing.
 
 = 3.2.0 =
 Recommended update with security hardening, Plugin Check cleanup, and release metadata alignment.

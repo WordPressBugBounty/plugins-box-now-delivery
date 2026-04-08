@@ -26,7 +26,7 @@ function box_now_delivery_enqueue_admin_scripts($hook)
         return;
     }
 
-    wp_enqueue_script('box_now_delivery_admin_page_script', plugins_url('../js/box-now-delivery-admin-page.js', __FILE__), array(), '1.0', true);
+    wp_enqueue_script('box_now_delivery_admin_page_script', plugins_url('../js/box-now-delivery-admin-page.js', __FILE__), array(), BOX_NOW_DELIVERY_VERSION, true);
 }
 
 add_action('admin_enqueue_scripts', 'box_now_delivery_enqueue_admin_scripts');
@@ -309,7 +309,7 @@ add_action('admin_enqueue_scripts', 'box_now_delivery_enqueue_admin_styles');
 
 function box_now_delivery_enqueue_styles()
 {
-    wp_register_style('box_now_delivery_styles', plugin_dir_url(__FILE__) . '../css/box-now-delivery.css', array(), '1.0.0');
+    wp_register_style('box_now_delivery_styles', plugin_dir_url(__FILE__) . '../css/box-now-delivery.css', array(), BOX_NOW_DELIVERY_VERSION);
     wp_enqueue_style('box_now_delivery_styles');
 }
 
