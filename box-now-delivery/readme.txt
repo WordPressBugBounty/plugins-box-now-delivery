@@ -2,8 +2,8 @@
 Contributors: boxnow
 Tags: delivery, boxnow
 Requires at least: 6.2
-Tested up to: 6.9
-Stable tag: 3.2.1
+Tested up to: 7.0
+Stable tag: 3.3.1
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -15,6 +15,22 @@ BOX NOW the future of parcel delivery.
 BOX NOW Delivery is used for connecting e-shops with parcel delivery services from BOX NOW.
 
 == Changelog ==
+
+= 3.3 =
+*Improved voucher admin compatibility by allowing limited order managers with `edit_shop_orders` to create, print, and cancel vouchers.
+*Added safer voucher cancellation controls, including a confirmed "Cancel All Vouchers" action for orders with multiple BOX NOW vouchers.
+*Improved multi-parcel cancellation handling across `_boxnow_parcel_ids` and `_boxnow_parcel_id`.
+*Restricted voucher/admin scripts to relevant WooCommerce order screens and cleaned up script handles.
+*Improved compatibility with Stripe, Apple Pay, Google Pay, PayPal, and WooCommerce express checkout flows by validating BOX NOW locker selection server-side.
+*Hardened BOX NOW admin order API handling, voucher print/cancel flows, and order cancellation request handling.
+*Declared compatibility with WooCommerce High-Performance Order Storage (HPOS).
+*Added Slovenia support to the BOX NOW locker widget.
+*Refreshed the plugin settings interface and added a locally hosted BOX NOW logo.
+*Added a shipping phone fallback when the billing phone is unavailable.
+*Improved Thank You page translations and fixed delayed locker cleanup after checkout.
+*Improved compatibility with block themes by replacing deprecated theme detection.
+*Reduced unnecessary autoloaded data by migrating legacy parcel options.
+*Standardized the size and alignment of voucher actions on WooCommerce order screens.
 
 = 3.2.1 =
 *Hotfix: improved asset versioning for plugin scripts and styles to reduce stale-cache issues after update, including WooCommerce admin voucher printing.
@@ -35,6 +51,9 @@ Max Package Dimensions values and unit are now fixed and can no longer be edited
 *Admin: Use WooCommerce order notes to display BOX NOW feedback to user.
 
 == Upgrade Notice ==
+
+= 3.3 =
+Recommended update with voucher management fixes, safer multi-voucher cancellation, express checkout improvements, HPOS compatibility, Slovenia widget support, and an updated settings interface.
 
 = 3.2.1 =
 Hotfix release for stale-cache issues after update, including WooCommerce admin voucher printing.

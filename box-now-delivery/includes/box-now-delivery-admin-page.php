@@ -34,175 +34,189 @@ add_action('admin_enqueue_scripts', 'box_now_delivery_enqueue_admin_scripts');
 function box_now_delivery_options()
 {
     ?>
-    <div class="wrap">
-        <h1>BOX NOW Delivery Plugin</h1>
+    <div class="wrap boxnow-settings">
+        <div class="boxnow-settings__header">
+            <div>
+                <h1>BOX NOW Delivery</h1>
+                <p>Configure the BOX NOW API connection, voucher handling, widget behavior, and checkout messaging for this store.</p>
+            </div>
+            <div class="boxnow-settings__links">
+                <a href="https://boxnow.gr/" target="_blank" rel="noopener noreferrer">BOX NOW website</a>
+                <a href="https://boxnow.gr/en/diy/eshops/plugins/woocommerce" target="_blank" rel="noopener noreferrer">Configuration guide</a>
+                <a href="mailto:info@boxnow.gr">info@boxnow.gr</a>
+                <img class="boxnow-settings__logo" src="<?php echo esc_url(plugins_url('../img/boxnow-logo.svg', __FILE__)); ?>" alt="BOX NOW" loading="lazy" />
+            </div>
+        </div>
+
         <?php settings_fields('box-now-delivery-settings-group'); ?>
         <?php do_settings_sections('box-now-delivery-settings-group'); ?>
-        <label style="width: 100%; float: left;">Thank you for choosing BOX NOW as your delivery option! To learn more about our services, visit our <a href="https://boxnow.gr/">website</a> or contact us at <a href="mailto:info@boxnow.gr">info@boxnow.gr</a>.</label>
-        <br><br>
-        <label style="width: 100%; float: left;">
-        <a href="https://boxnow.gr/en/diy/eshops/plugins/woocommerce" target="_blank" rel="noopener noreferrer">Need help with the configuration? See BOX NOW plugin configuration guide</a>
-        </label>
-        <br>
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+
+        <form class="boxnow-settings__form" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
             <input type="hidden" name="action" value="boxnow-settings-save">
             <?php wp_nonce_field('boxnow-settings-save', 'boxnow-custom-message'); ?>
 
-            <div id="main-container">
-
-                <!-- Main inputs and credentials -->
-                <div style="width: 100%; float: left;">
-                    <h2 style="width: 100%; float: left;">API Details</h2>
-                    <div style="width:30%; float: left;">
-                        <p>
-                            <label>Select API URL</label>
-                            <br />
-                            <select name="boxnow_api_url" style="min-width: 100%">
-                                <option value="api-stage.boxnow.gr" <?php selected(get_option('boxnow_api_url', ''), 'api-stage.boxnow.gr'); ?>>api-stage.boxnow.gr</option>
-                                <option value="api-production.boxnow.gr" <?php selected(get_option('boxnow_api_url', ''), 'api-production.boxnow.gr'); ?>>api-production.boxnow.gr</option>
-                            </select>
-                        </p>
-                        <p>
-                            <label>Your Warehouse IDs (Multiple IDs separated by commas ",") *</label>
-                            <br />
-                            <input type="text" name="boxnow_warehouse_id" value="<?php echo esc_attr(get_option('boxnow_warehouse_id', '')); ?>" placeholder="Enter your Warehouse ID" required />
-                        </p>
+            <section class="boxnow-settings-card">
+                <div class="boxnow-settings-card__header">
+                    <h2>API Details</h2>
+                    <p>Credentials and warehouse identifiers used for BOX NOW API requests.</p>
+                </div>
+                <div class="boxnow-settings-grid boxnow-settings-grid--three">
+                    <div class="boxnow-field">
+                        <label for="boxnow_api_url">Select API URL</label>
+                        <select id="boxnow_api_url" name="boxnow_api_url">
+                            <option value="api-stage.boxnow.gr" <?php selected(get_option('boxnow_api_url', ''), 'api-stage.boxnow.gr'); ?>>api-stage.boxnow.gr</option>
+                            <option value="api-production.boxnow.gr" <?php selected(get_option('boxnow_api_url', ''), 'api-production.boxnow.gr'); ?>>api-production.boxnow.gr</option>
+                        </select>
                     </div>
-                    <div style="width:30%; float: left;">
-                        <p>
-                            <label>Your Client ID *</label>
-                            <br />
-                            <input type="text" name="boxnow_client_id" value="<?php echo esc_attr(get_option('boxnow_client_id', '')); ?>" placeholder="Enter your Client ID" required />
-                        </p>
-                        <p>
-                            <label>Your Partner ID *</label>
-                            <br />
-                            <input type="text" name="boxnow_partner_id" value="<?php echo esc_attr(get_option('boxnow_partner_id', '')); ?>" placeholder="Enter your Partner ID" required />
-                        </p>
+                    <div class="boxnow-field">
+                        <label for="boxnow_warehouse_id">Your Warehouse IDs <span>*</span></label>
+                        <input id="boxnow_warehouse_id" type="text" name="boxnow_warehouse_id" value="<?php echo esc_attr(get_option('boxnow_warehouse_id', '')); ?>" placeholder="Enter your Warehouse ID" required />
+                        <p class="boxnow-field__help">Use commas for multiple IDs.</p>
                     </div>
-                    <div style="width:30%; float: left;">
-                        <p>
-                            <label>Your Client Secret *</label>
-                            <br />
-                            <input type="text" name="boxnow_client_secret" value="<?php echo esc_attr(get_option('boxnow_client_secret', '')); ?>" placeholder="Enter your Client Secret" required />
-                        </p>
+                    <div class="boxnow-field">
+                        <label for="boxnow_partner_id">Your Partner ID <span>*</span></label>
+                        <input id="boxnow_partner_id" type="text" name="boxnow_partner_id" value="<?php echo esc_attr(get_option('boxnow_partner_id', '')); ?>" placeholder="Enter your Partner ID" required />
                     </div>
-
-                    <!-- Sender's Contact field -->
-                    <h2 style="width: 100%; float: left;">Contact Details (Contact details are also used for Parcel Returns)</h2>
-                    <div style="width: 30%; float: left;">
-                        <!-- Email input for voucher -->
-                        <div id="email_input_container" style="width: 100%; float: left;">
-                            <p>
-                                <label>Your Orders Contact Email *</label>
-                                <br />
-                                <input type="text" name="boxnow_voucher_email" value="<?php echo esc_attr(get_option('boxnow_voucher_email', '')); ?>" placeholder="Please insert your email here" required />
-                            <p id="email_validation_message" style="color: red;"></p>
-                            </p>
-                            <br />
-                        </div>
-                        <p>
-                            <label>Your Orders Contact Mobile Phone *</label>
-                            <br />
-                            <input type="text" name="boxnow_mobile_number" value="<?php echo esc_attr(get_option('boxnow_mobile_number', '')); ?>" pattern="^\+(30|357|359|385)(9|69|87|88|89).*" placeholder="Enter your phone with country preffix (+30 , +357, etc)" required />
-                        </p>
+                    <div class="boxnow-field">
+                        <label for="boxnow_client_id">Your Client ID <span>*</span></label>
+                        <input id="boxnow_client_id" type="text" name="boxnow_client_id" value="<?php echo esc_attr(get_option('boxnow_client_id', '')); ?>" placeholder="Enter your Client ID" required />
                     </div>
-
-                    <!-- Voucher options -->
-                    <h2 style="width: 100%; float: left;">Voucher Creation Mode</h2>
-                    <div style="width: 100%; float: left;">
-                        <p>
-                            <input type="radio" id="display_voucher_button" name="boxnow_voucher_option" value="button" <?php checked(get_option('boxnow_voucher_option', 'button'), 'button'); ?>>
-                            <label for="display_voucher_button">Manual Voucher Issuance (Created and printed from the Order page)</label>
-                        </p>
-                        <p>
-                            <input type="radio" id="send_voucher_email" name="boxnow_voucher_option" value="email" <?php checked(get_option('boxnow_voucher_option', 'button'), 'email'); ?>>
-                            <label for="send_voucher_email">Automatic Voucher Issuance (Sent by email when the order status changes to Completed)</label>
-                        </p>
-                    </div>
-                    <div style="max-width: 550px; float: left;">
-                        <p>*Please note: Automatic voucher issuance is not recommended. This method automatically selects compartment sizes based on item dimensions, which may lead to incorrect compartment assignments if your items are not properly configured.</p>
-                    </div>
-					<h3 style="width: 100%; float: left;">Allow Returns</h3>
-                    <div style="width: 100%; float: left;">
-                        <p>
-                            <input type="radio" id="display_allow_returns_yes" name="boxnow_allow_returns" value="1" <?php checked(get_option('boxnow_allow_returns', '1'), '1'); ?>>
-                            <label for="display_allowReturns_yes">Yes</label>
-                        </p>
-                        <p>
-                            <input type="radio" id="display_allow_returns_no" name="boxnow_allow_returns" value="0" <?php checked(get_option('boxnow_allow_returns', '1'), '0'); ?>>
-                            <label for="display_allowReturns_no">No</label>
-                        </p>
-                    </div>
-
-                    <!-- Widget Options -->
-                    <h2 style="width: 100%; float: left;">Widget Options</h2>
-                    <h3 style="width: 100%; float: left;">Widget Display Mode</h3>
-                    <div style="width: 100%; float: left;">
-                        <p>
-                            <input type="radio" id="box_now_display_mode_popup" name="box_now_display_mode" value="popup" <?php checked(get_option('box_now_display_mode', 'popup'), 'popup'); ?>>
-                            <label for="box_now_display_mode_popup">Popup Window</label>
-                        </p>
-                        <p>
-                            <input type="radio" id="box_now_display_mode_embedded" name="box_now_display_mode" value="embedded" <?php checked(get_option('box_now_display_mode', 'popup'), 'embedded'); ?>>
-                            <label for="box_now_display_mode_embedded">Embedded iFrame</label>
-                        </p>
-                    </div>
-
-                    <!-- GPS Options -->
-                    <h3 style="width: 100%; float: left;">Widget GPS Permission</h3>
-                    <div style="width: 100%; float: left;">
-                        <p>
-                            <input type="radio" id="gps_tracking_on" name="boxnow_gps_tracking" value="on" <?php checked(get_option('boxnow_gps_tracking', 'on'), 'on'); ?>>
-                            <label for="gps_tracking_on">GPS ON</label>
-                        </p>
-                        <p>
-                            <input type="radio" id="gps_tracking_off" name="boxnow_gps_tracking" value="off" <?php checked(get_option('boxnow_gps_tracking', 'on'), 'off'); ?>>
-                            <label for="gps_tracking_off">GPS OFF</label>
-                        </p>
-                    </div>
-
-					<!-- Thank you page -->
-					<h3 style="width: 100%; float: left;">Allow Locker Change on Thank You Page</h3>
-                    <div style="width: 100%; float: left;">
-                        <p>
-                            <input type="radio" id="boxnow_thankyou_page_yes" name="boxnow_thankyou_page" value="1" <?php checked(get_option('boxnow_thankyou_page', '1'), '1'); ?>>
-                            <label for="boxnow_thankyou_page_yes">Yes</label>
-                        </p>
-                        <p>
-                            <input type="radio" id="boxnow_thankyou_page_no" name="boxnow_thankyou_page" value="0" <?php checked(get_option('boxnow_thankyou_page', '1'), '0'); ?>>
-                            <label for="boxnow_thankyou_page_no">No</label>
-                        </p>
-                    </div>
-                    <div style="max-width: 550px; float: left;">
-                        <p>*Allows customers to change their selected locker on the Thank You page after a successful order.</p>
-                    </div>
-
-                    <!-- Button options -->
-                    <h2 style="width: 100%; float: left;">Button & Customization</h2>
-                    <div style="width:30%; float: left;">
-                        <p>
-                            <label>Change Button Background Color</label>
-                            <br />
-                            <input type="text" name="boxnow_button_color" value="<?php echo esc_attr(get_option('boxnow_button_color', '#6CD04E ')); ?>" placeholder="#6CD04E " />
-                        </p>
-                        <p>
-                            <label>Change Button Text</label>
-                            <br />
-                            <input type="text" id="button_text_input" name="boxnow_button_text" value="<?php echo esc_attr(get_option('boxnow_button_text', 'Pick a locker')); ?>" placeholder="Pick a locker" />
-                        </p>
-                        <p>
-                            <label>Change Message Text (Displayed when no locker is selected)</label>
-                            <br />
-                            <input type="text" name="boxnow_locker_not_selected_message" value="<?php echo esc_attr(get_option('boxnow_locker_not_selected_message', '')); ?>" placeholder="Enter your message" />
-                        </p>
-                    </div>
-
-                    <!-- Save button -->
-                    <div style="width:100%; float: left; clear: both;">
-                        <?php submit_button(); ?>
+                    <div class="boxnow-field">
+                        <label for="boxnow_client_secret">Your Client Secret <span>*</span></label>
+                        <input id="boxnow_client_secret" type="text" name="boxnow_client_secret" value="<?php echo esc_attr(get_option('boxnow_client_secret', '')); ?>" placeholder="Enter your Client Secret" required />
                     </div>
                 </div>
+            </section>
+
+            <section class="boxnow-settings-card">
+                <div class="boxnow-settings-card__header">
+                    <h2>Contact Details</h2>
+                    <p>Contact details are used for voucher creation and parcel returns.</p>
+                </div>
+                <div class="boxnow-settings-grid">
+                    <div id="email_input_container" class="boxnow-field">
+                        <label for="boxnow_voucher_email">Your Orders Contact Email <span>*</span></label>
+                        <input id="boxnow_voucher_email" type="text" name="boxnow_voucher_email" value="<?php echo esc_attr(get_option('boxnow_voucher_email', '')); ?>" placeholder="Please insert your email here" required />
+                        <p id="email_validation_message" class="boxnow-field__error"></p>
+                    </div>
+                    <div class="boxnow-field">
+                        <label for="boxnow_mobile_number">Your Orders Contact Mobile Phone <span>*</span></label>
+                        <input id="boxnow_mobile_number" type="text" name="boxnow_mobile_number" value="<?php echo esc_attr(get_option('boxnow_mobile_number', '')); ?>" pattern="^\+(30|357|359|385)(9|69|87|88|89).*" placeholder="Enter your phone with country prefix (+30, +357, etc)" required />
+                    </div>
+                </div>
+            </section>
+
+            <section class="boxnow-settings-card">
+                <div class="boxnow-settings-card__header">
+                    <h2>Voucher Creation Mode</h2>
+                    <p>Choose whether vouchers are created manually from orders or automatically after completion.</p>
+                </div>
+                <div class="boxnow-radio-group">
+                    <label class="boxnow-radio-option" for="display_voucher_button">
+                        <input type="radio" id="display_voucher_button" name="boxnow_voucher_option" value="button" <?php checked(get_option('boxnow_voucher_option', 'button'), 'button'); ?>>
+                        <span>Manual Voucher Issuance <small>Created and printed from the order page.</small></span>
+                    </label>
+                    <label class="boxnow-radio-option" for="send_voucher_email">
+                        <input type="radio" id="send_voucher_email" name="boxnow_voucher_option" value="email" <?php checked(get_option('boxnow_voucher_option', 'button'), 'email'); ?>>
+                        <span>Automatic Voucher Issuance <small>Sent by email when the order status changes to Completed.</small></span>
+                    </label>
+                </div>
+                <p class="boxnow-settings-note">Automatic voucher issuance is not recommended. This method automatically selects compartment sizes based on item dimensions, which may lead to incorrect compartment assignments if your items are not properly configured.</p>
+            </section>
+
+            <section class="boxnow-settings-card">
+                <div class="boxnow-settings-card__header">
+                    <h2>Returns</h2>
+                    <p>Control whether BOX NOW delivery requests allow parcel returns.</p>
+                </div>
+                <div class="boxnow-radio-group boxnow-radio-group--inline">
+                    <label class="boxnow-radio-option" for="display_allow_returns_yes">
+                        <input type="radio" id="display_allow_returns_yes" name="boxnow_allow_returns" value="1" <?php checked(get_option('boxnow_allow_returns', '1'), '1'); ?>>
+                        <span>Yes</span>
+                    </label>
+                    <label class="boxnow-radio-option" for="display_allow_returns_no">
+                        <input type="radio" id="display_allow_returns_no" name="boxnow_allow_returns" value="0" <?php checked(get_option('boxnow_allow_returns', '1'), '0'); ?>>
+                        <span>No</span>
+                    </label>
+                </div>
+            </section>
+
+            <section class="boxnow-settings-card">
+                <div class="boxnow-settings-card__header">
+                    <h2>Widget Options</h2>
+                    <p>Configure how customers choose lockers during checkout.</p>
+                </div>
+                <div class="boxnow-settings-grid">
+                    <div class="boxnow-field">
+                        <h3>Widget Display Mode</h3>
+                        <div class="boxnow-radio-group">
+                            <label class="boxnow-radio-option" for="box_now_display_mode_popup">
+                                <input type="radio" id="box_now_display_mode_popup" name="box_now_display_mode" value="popup" <?php checked(get_option('box_now_display_mode', 'popup'), 'popup'); ?>>
+                                <span>Popup Window</span>
+                            </label>
+                            <label class="boxnow-radio-option" for="box_now_display_mode_embedded">
+                                <input type="radio" id="box_now_display_mode_embedded" name="box_now_display_mode" value="embedded" <?php checked(get_option('box_now_display_mode', 'popup'), 'embedded'); ?>>
+                                <span>Embedded iFrame</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="boxnow-field">
+                        <h3>Widget GPS Permission</h3>
+                        <div class="boxnow-radio-group">
+                            <label class="boxnow-radio-option" for="gps_tracking_on">
+                                <input type="radio" id="gps_tracking_on" name="boxnow_gps_tracking" value="on" <?php checked(get_option('boxnow_gps_tracking', 'on'), 'on'); ?>>
+                                <span>GPS ON</span>
+                            </label>
+                            <label class="boxnow-radio-option" for="gps_tracking_off">
+                                <input type="radio" id="gps_tracking_off" name="boxnow_gps_tracking" value="off" <?php checked(get_option('boxnow_gps_tracking', 'on'), 'off'); ?>>
+                                <span>GPS OFF</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="boxnow-settings-card">
+                <div class="boxnow-settings-card__header">
+                    <h2>Thank You Page Options</h2>
+                    <p>Allow customers to adjust their selected locker after a successful order.</p>
+                </div>
+                <div class="boxnow-radio-group boxnow-radio-group--inline">
+                    <label class="boxnow-radio-option" for="boxnow_thankyou_page_yes">
+                        <input type="radio" id="boxnow_thankyou_page_yes" name="boxnow_thankyou_page" value="1" <?php checked(get_option('boxnow_thankyou_page', '1'), '1'); ?>>
+                        <span>Yes</span>
+                    </label>
+                    <label class="boxnow-radio-option" for="boxnow_thankyou_page_no">
+                        <input type="radio" id="boxnow_thankyou_page_no" name="boxnow_thankyou_page" value="0" <?php checked(get_option('boxnow_thankyou_page', '1'), '0'); ?>>
+                        <span>No</span>
+                    </label>
+                </div>
+            </section>
+
+            <section class="boxnow-settings-card">
+                <div class="boxnow-settings-card__header">
+                    <h2>Button &amp; Customization</h2>
+                    <p>Customize the checkout locker button and validation message.</p>
+                </div>
+                <div class="boxnow-settings-grid">
+                    <div class="boxnow-field">
+                        <label for="boxnow_button_color">Change Button Background Color</label>
+                        <input id="boxnow_button_color" type="text" name="boxnow_button_color" value="<?php echo esc_attr(get_option('boxnow_button_color', '#6CD04E ')); ?>" placeholder="#6CD04E" />
+                    </div>
+                    <div class="boxnow-field">
+                        <label for="button_text_input">Change Button Text</label>
+                        <input type="text" id="button_text_input" name="boxnow_button_text" value="<?php echo esc_attr(get_option('boxnow_button_text', 'Pick a locker')); ?>" placeholder="Pick a locker" />
+                    </div>
+                    <div class="boxnow-field boxnow-field--wide">
+                        <label for="boxnow_locker_not_selected_message">Change Message Text</label>
+                        <input id="boxnow_locker_not_selected_message" type="text" name="boxnow_locker_not_selected_message" value="<?php echo esc_attr(get_option('boxnow_locker_not_selected_message', '')); ?>" placeholder="Enter your message" />
+                        <p class="boxnow-field__help">Displayed when no locker is selected.</p>
+                    </div>
+                </div>
+            </section>
+
+            <div class="boxnow-settings__actions">
+                <?php submit_button('Save Changes', 'primary', 'submit', false); ?>
             </div>
         </form>
     </div>
@@ -234,6 +248,10 @@ function box_now_delivery_admin_init()
     $already_ran_migrations = true;
     $installed_version = get_option('boxnow_plugin_version', '0.0.0');
 
+    if (function_exists('boxnow_disable_legacy_parcel_option_autoload')) {
+        boxnow_disable_legacy_parcel_option_autoload();
+    }
+
     if (version_compare($installed_version, BOX_NOW_DELIVERY_VERSION, '<')) {
         if (function_exists('boxnow_remove_legacy_shipping_method_fields')) {
             boxnow_remove_legacy_shipping_method_fields();
@@ -245,6 +263,31 @@ function box_now_delivery_admin_init()
 
 add_action('admin_menu', 'box_now_delivery_menu');
 add_action('admin_init', 'box_now_delivery_admin_init');
+
+function boxnow_disable_legacy_parcel_option_autoload() {
+    $migration_option = 'boxnow_legacy_parcel_options_autoload_fixed';
+
+    if (get_option($migration_option, '') === BOX_NOW_DELIVERY_VERSION) {
+        return;
+    }
+
+    $legacy_prefix = '_boxnow_parcel_order_id_';
+    $alloptions = wp_load_alloptions();
+
+    foreach (array_keys($alloptions) as $option_name) {
+        if (strpos($option_name, $legacy_prefix) !== 0) {
+            continue;
+        }
+
+        $stored_value = get_option($option_name);
+
+        if (delete_option($option_name)) {
+            add_option($option_name, $stored_value, '', false);
+        }
+    }
+
+    update_option($migration_option, BOX_NOW_DELIVERY_VERSION, false);
+}
 
 function boxnow_remove_legacy_shipping_method_fields() {
     // Safety check – exit if WooCommerce is not fully ready

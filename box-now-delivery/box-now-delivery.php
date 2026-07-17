@@ -4,7 +4,7 @@ Plugin Name: BOX NOW Delivery
 Description: A Wordpress plugin from BOX NOW to integrate your eshop with our services.
 Author: BOX NOW
 Text Domain: box-now-delivery
-Version: 3.2.1
+Version: 3.3
 License: GPLv2 or later
 */
 
@@ -15,7 +15,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Plugin Version Constant
  */
-define( 'BOX_NOW_DELIVERY_VERSION', '3.2.1' );
+define( 'BOX_NOW_DELIVERY_VERSION', '3.3.1' );
+
+add_action('before_woocommerce_init', 'boxnow_declare_hpos_compatibility');
+function boxnow_declare_hpos_compatibility()
+{
+    if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+    }
+}
 
 // Cancel order API call file
 require_once plugin_dir_path(__FILE__) . 'includes/box-now-delivery-cancel-order.php';
@@ -26,8 +34,12 @@ require_once plugin_dir_path(__FILE__) . 'includes/box-now-delivery-print-order.
 // Include constants first
 require_once plugin_dir_path(__FILE__) . 'includes/box-now-delivery-constants.php';
 
-// Check if WooCommerce is active
-if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_option('active_plugins')))) {
+// Check if WooCommerce is active, including network-activated Multisite installations.
+if (!function_exists('is_plugin_active')) {
+    require_once ABSPATH . 'wp-admin/includes/plugin.php';
+}
+
+if (is_plugin_active('woocommerce/woocommerce.php')) {
     // Include custom shipping method file
     include(plugin_dir_path(__FILE__) . 'includes/box-now-delivery-shipping-method.php');
 
@@ -93,12 +105,12 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                 'page' => $page
             );
 
-            wp_enqueue_script('box-now-delivery-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery.js', array('jquery'), BOX_NOW_DELIVERY_VERSION, true);
+            wp_enqueue_script('box-now-delivery-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery.js', array('jquery', 'wp-hooks'), BOX_NOW_DELIVERY_VERSION, true);
             wp_enqueue_style('box-now-delivery-css', plugins_url('/css/box-now-delivery.css', __FILE__), array(), BOX_NOW_DELIVERY_VERSION);
             wp_localize_script('box-now-delivery-js', 'boxNowDeliverySettings', $settings);
             // If WooCommerce Blocks checkout is present, enqueue the Blocks-specific script
             if (boxnow_is_blocks_checkout()) {
-                wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), BOX_NOW_DELIVERY_VERSION, true);
+                wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data', 'wp-hooks'), BOX_NOW_DELIVERY_VERSION, true);
                 wp_localize_script('box-now-delivery-blocks-js', 'boxNowDeliverySettings', $settings);
             }
         }
@@ -130,10 +142,10 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
         }
         
         // Only proceed if Blocks is available
-        if (!function_exists('wc_current_theme_is_fse_theme') || !wc_current_theme_is_fse_theme()) {
+        if (!wp_is_block_theme()) {
             // Still enqueue the script if blocks are used via shortcode in non-FSE themes
             if (boxnow_is_blocks_checkout()) {
-                wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), BOX_NOW_DELIVERY_VERSION, true);
+                wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data', 'wp-hooks'), BOX_NOW_DELIVERY_VERSION, true);
                 $button_color = esc_attr(get_option('boxnow_button_color', '#6CD04E '));
                 $button_text = esc_attr(get_option('boxnow_button_text', 'Pick a Locker'));
                 $settings = array(
@@ -170,7 +182,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('box-now-delivery-nonce'),
         );
-        wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data'), BOX_NOW_DELIVERY_VERSION, true);
+        wp_enqueue_script('box-now-delivery-blocks-js', plugin_dir_url(__FILE__) . 'js/box-now-delivery-blocks.js', array('wp-data', 'wp-hooks'), BOX_NOW_DELIVERY_VERSION, true);
         wp_localize_script('box-now-delivery-blocks-js', 'boxNowDeliverySettings', $settings);
     }
     add_action('woocommerce_blocks_checkout_enqueue_data', 'bndp_add_boxnow_data_to_blocks');
@@ -206,6 +218,201 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
     }
     add_action('woocommerce_review_order_before_submit', 'bndp_box_now_delivery_checkout_nonce_field');
 
+    function bndp_is_box_now_shipping_method_value($shipping_method)
+    {
+        return is_string($shipping_method) && strpos($shipping_method, 'box_now_delivery') !== false;
+    }
+
+    function bndp_order_has_box_now_shipping_method($order)
+    {
+        if (!$order || !is_a($order, 'WC_Order')) {
+            return false;
+        }
+
+        foreach ($order->get_shipping_methods() as $shipping_method) {
+            if (method_exists($shipping_method, 'get_method_id') && $shipping_method->get_method_id() === 'box_now_delivery') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function bndp_order_has_shipping_methods($order)
+    {
+        return $order && is_a($order, 'WC_Order') && !empty($order->get_shipping_methods());
+    }
+
+    function bndp_get_posted_shipping_methods()
+    {
+        if (!isset($_POST['shipping_method'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Read-only checkout request inspection during WooCommerce validation.
+            return array();
+        }
+
+        $posted_shipping_methods = wc_clean(wp_unslash((array) $_POST['shipping_method'])); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized immediately after reading checkout request data.
+
+        return array_values(array_filter($posted_shipping_methods, 'is_string'));
+    }
+
+    function bndp_get_posted_box_now_locker_id()
+    {
+        if (isset($_POST['box_now_selected_locker'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Read-only checkout request inspection during WooCommerce validation.
+            $locker_data_json = wp_unslash($_POST['box_now_selected_locker']); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- JSON is decoded first; the extracted locker id is sanitized below.
+            $locker_data = json_decode($locker_data_json, true);
+
+            if (JSON_ERROR_NONE === json_last_error() && is_array($locker_data) && !empty($locker_data['boxnowLockerId'])) {
+                return sanitize_text_field($locker_data['boxnowLockerId']);
+            }
+        }
+
+        if (isset($_POST['_boxnow_locker_id'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Read-only checkout request inspection during WooCommerce validation.
+            return sanitize_text_field(wp_unslash($_POST['_boxnow_locker_id'])); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized immediately after reading checkout request data.
+        }
+
+        return '';
+    }
+
+    function bndp_get_request_text_value($key, $sources = array('post', 'get'))
+    {
+        foreach ($sources as $source) {
+            if ('post' === $source && isset($_POST[$key])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only request inspection for gateway flow detection.
+                $value = wp_unslash($_POST[$key]); // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized immediately after reading request data.
+            } elseif ('get' === $source && isset($_GET[$key])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only request inspection for gateway flow detection.
+                $value = wp_unslash($_GET[$key]); // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized immediately after reading request data.
+            } else {
+                continue;
+            }
+
+            if (is_array($value)) {
+                continue;
+            }
+
+            return sanitize_text_field($value);
+        }
+
+        return '';
+    }
+
+    function bndp_checkout_uses_box_now_delivery($order = null)
+    {
+        if (bndp_order_has_box_now_shipping_method($order)) {
+            return true;
+        }
+
+        if (bndp_order_has_shipping_methods($order)) {
+            return false;
+        }
+
+        $posted_shipping_methods = bndp_get_posted_shipping_methods();
+        if (!empty($posted_shipping_methods)) {
+            foreach ($posted_shipping_methods as $shipping_method) {
+                if (bndp_is_box_now_shipping_method_value($shipping_method)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (function_exists('WC') && WC()->session) {
+            $chosen_shipping_methods = WC()->session->get('chosen_shipping_methods', array());
+            foreach ((array) $chosen_shipping_methods as $shipping_method) {
+                if (bndp_is_box_now_shipping_method_value($shipping_method)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    function bndp_get_box_now_locker_id_from_request_data($request_data = array())
+    {
+        if (!empty($request_data['extensions']['box-now-delivery']['_boxnow_locker_id'])) {
+            return sanitize_text_field($request_data['extensions']['box-now-delivery']['_boxnow_locker_id']);
+        }
+
+        if (!empty($request_data['_boxnow_locker_id'])) {
+            return sanitize_text_field($request_data['_boxnow_locker_id']);
+        }
+
+        $posted_locker_id = bndp_get_posted_box_now_locker_id();
+        if ('' !== $posted_locker_id) {
+            return $posted_locker_id;
+        }
+
+        if (function_exists('WC') && WC()->session) {
+            $session_locker_id = WC()->session->get('boxnow_selected_locker_id');
+            if (!empty($session_locker_id)) {
+                return sanitize_text_field($session_locker_id);
+            }
+        }
+
+        return '';
+    }
+
+    function bndp_throw_store_api_locker_error()
+    {
+        $message = get_option('boxnow_locker_not_selected_message', 'Please select a locker first!');
+
+        if (class_exists('\Automattic\WooCommerce\StoreApi\Exceptions\RouteException')) {
+            throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException(
+                'box-now-delivery-locker-not-selected',
+                esc_html($message),
+                400
+            );
+        }
+
+        throw new Exception(esc_html($message));
+    }
+
+    function bndp_is_paypal_express_checkout_request()
+    {
+        $wc_ajax = sanitize_key(bndp_get_request_text_value('wc-ajax', array('get')));
+        if (in_array($wc_ajax, array('ppc-create-order', 'ppc-validate-checkout', 'ppc-approve-order', 'ppc-approve-subscription'), true)) {
+            return true;
+        }
+
+        $payment_method = bndp_get_request_text_value('payment_method');
+        if (strpos($payment_method, 'ppcp-') === 0) {
+            return true;
+        }
+
+        if (
+            '' !== bndp_get_request_text_value('ppcp-resume-order')
+            || '' !== bndp_get_request_text_value('ppcp-funding-source')
+            || '' !== bndp_get_request_text_value('funding_source')
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    function bndp_should_skip_box_now_locker_enforcement()
+    {
+        return bndp_is_paypal_express_checkout_request();
+    }
+
+    function bndp_validate_box_now_locker_for_classic_checkout($data, $errors)
+    {
+        if (!bndp_checkout_uses_box_now_delivery()) {
+            return;
+        }
+
+        if (bndp_should_skip_box_now_locker_enforcement()) {
+            return;
+        }
+
+        if (bndp_get_box_now_locker_id_from_request_data()) {
+            return;
+        }
+
+        $message = get_option('boxnow_locker_not_selected_message', 'Please select a locker first!');
+        $errors->add('box-now-delivery-locker-not-selected', esc_html($message));
+    }
+    add_action('woocommerce_after_checkout_validation', 'bndp_validate_box_now_locker_for_classic_checkout', 10, 2);
+
     /**
      * Hide the locker ID field on the checkout page.
      */
@@ -234,7 +441,9 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
             <script>
                 jQuery(document).ready(function($) {
                     // delay to clear local storage at thank you page to make sure box_now_selected_locker is correctly saved
-                    setTimeout(localStorage.removeItem("box_now_selected_locker"), 2000);
+                    setTimeout(function() {
+                        localStorage.removeItem("box_now_selected_locker");
+                    }, 2000);
                 });
             </script>
             <?php
@@ -245,6 +454,75 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
 
     /* Display field value on the order edit page */
     add_action('woocommerce_admin_order_data_after_billing_address', 'bndp_box_now_delivery_checkout_field_display_admin_order_meta', 10, 1);
+
+    function bndp_get_boxnow_warehouse_names_for_admin_order()
+    {
+        $api_base = get_option('boxnow_api_url', '');
+        $client_id = get_option('boxnow_client_id', '');
+        $client_secret = get_option('boxnow_client_secret', '');
+
+        if (empty($api_base) || empty($client_id) || empty($client_secret)) {
+            return array();
+        }
+
+        $auth_response = wp_remote_post(
+            'https://' . $api_base . '/api/v1/auth-sessions',
+            array(
+                'method' => 'POST',
+                'timeout' => 10,
+                'headers' => array('Content-Type' => 'application/json'),
+                'body' => wp_json_encode(array(
+                    'grant_type' => 'client_credentials',
+                    'client_id' => $client_id,
+                    'client_secret' => $client_secret,
+                )),
+            )
+        );
+
+        if (is_wp_error($auth_response)) {
+            return array();
+        }
+
+        $auth_code = wp_remote_retrieve_response_code($auth_response);
+        $auth_body = json_decode(wp_remote_retrieve_body($auth_response), true);
+
+        if ($auth_code < 200 || $auth_code >= 300 || empty($auth_body['access_token'])) {
+            return array();
+        }
+
+        $origins_response = wp_remote_get(
+            'https://' . $api_base . '/api/v1/origins',
+            array(
+                'timeout' => 10,
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $auth_body['access_token'],
+                    'Content-Type' => 'application/json',
+                ),
+            )
+        );
+
+        if (is_wp_error($origins_response)) {
+            return array();
+        }
+
+        $origins_code = wp_remote_retrieve_response_code($origins_response);
+        $origins_body = json_decode(wp_remote_retrieve_body($origins_response), true);
+
+        if ($origins_code < 200 || $origins_code >= 300 || empty($origins_body['data']) || !is_array($origins_body['data'])) {
+            return array();
+        }
+
+        $warehouse_names = array();
+        foreach ($origins_body['data'] as $warehouse) {
+            if (!is_array($warehouse) || !isset($warehouse['id'], $warehouse['name'])) {
+                continue;
+            }
+
+            $warehouse_names[(string) $warehouse['id']] = (string) $warehouse['name'];
+        }
+
+        return $warehouse_names;
+    }
 
     /**
      * Display custom checkout field in the order edit page.
@@ -269,35 +547,8 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
 
             $locker_id = $order->get_meta('_boxnow_locker_id');
             $warehouse_id = $order->get_meta('_selected_warehouse');
-
-            /* get names for possible warehouses */
-            $api_url = 'https://' . get_option('boxnow_api_url', '') . '/api/v1/auth-sessions';
-            $auth_args = array(
-                'method' => 'POST',
-                'headers' => array('Content-Type' => 'application/json'),
-                'body' => json_encode(array(
-                    'grant_type' => 'client_credentials',
-                    'client_id' => get_option('boxnow_client_id', ''),
-                    'client_secret' => get_option('boxnow_client_secret', '')
-                ))
-            );
-            $response = wp_remote_post($api_url, $auth_args);
-            $json = json_decode(wp_remote_retrieve_body($response), true);
-
-            $api_url = 'https://' . get_option('boxnow_api_url', '') . '/api/v1/origins';
-            $origins_args = array(
-                'method' => 'GET',
-                'headers' => array(
-                    'Authorization' => 'Bearer ' . $json['access_token'],
-                    'Content-Type' => 'application/json'
-                )
-            );
-            $warehouses_json = wp_remote_get($api_url, $origins_args);
-            $warehouses_list = json_decode(wp_remote_retrieve_body($warehouses_json), true);
-            $warehouse_names = [];
-            foreach ($warehouses_list['data'] as $warehouse) {
-                $warehouse_names[$warehouse['id']] = $warehouse['name'];
-            }
+            $warehouse_names = bndp_get_boxnow_warehouse_names_for_admin_order();
+            $warehouse_display_name = isset($warehouse_names[(string) $warehouse_id]) ? $warehouse_names[(string) $warehouse_id] : '';
 
         ?>
             <style>
@@ -323,35 +574,34 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                 <div class="address">
                     <?php
                     echo '<p><strong>' . esc_html__('Locker ID', 'box-now-delivery') . ':</strong>' . esc_html($locker_id) . '</p>';
-                    echo '<p><strong>' . esc_html__('Warehouse ID', 'box-now-delivery') . ':</strong>' . esc_html($warehouse_id) . ' - ' . esc_html($warehouse_names[$warehouse_id]) . '</p>';
+                    echo '<p><strong>' . esc_html__('Warehouse ID', 'box-now-delivery') . ':</strong>' . esc_html($warehouse_id);
+                    if ($warehouse_display_name !== '') {
+                        echo ' - ' . esc_html($warehouse_display_name);
+                    }
+                    echo '</p>';
                     ?>
                 </div>
                 <div class="edit_address">
                     <?php
+                    echo '<div class="boxnow-admin-locker-selector">';
                     woocommerce_wp_text_input(array(
                         'id' => '_boxnow_locker_id',
                         'label' => esc_html__('Locker ID', 'box-now-delivery'),
                         'wrapper_class' => '_boxnow_locker_id',
                         'value' => $order->get_meta('_boxnow_locker_id')
                     ));
-                    echo '<a id="box_now_delivery_button" target="_blank" style=" background-color:#44d62d;
-	border-radius:28px;
-	border:1px solid #18ab29;
-	display:inline-block;
-	cursor:pointer;
-	color:#ffffff;
-	font-family:Arial;
-	font-size:12px;
-	padding:8px 12px;
-    top: 23px;
-	text-decoration:none;
-	">Find a Locker</a></span>';
-                    $warehouse_ids = explode(',', str_replace(' ', '', get_option('boxnow_warehouse_id', '')));
-                    $warehouses_show = [];
-                    foreach ($warehouse_ids as $id) {
-                        $warehouses_show[$id] = $id . ' - ' . esc_html($warehouse_names[$id]);
+                    echo '<a id="box_now_delivery_button" class="button box-now-admin-find-locker" href="#">' . esc_html__('Find a Locker', 'box-now-delivery') . '</a>';
+                    echo '</div>';
+                    $warehouse_ids = array_filter(array_map('trim', explode(',', get_option('boxnow_warehouse_id', ''))));
+                    if (empty($warehouse_ids) && !empty($warehouse_id)) {
+                        $warehouse_ids = array($warehouse_id);
                     }
-                    $warehouse_options = array_combine($warehouse_ids, $warehouses_show);
+
+                    $warehouse_options = [];
+                    foreach ($warehouse_ids as $id) {
+                        $id = (string) $id;
+                        $warehouse_options[$id] = isset($warehouse_names[$id]) ? $id . ' - ' . $warehouse_names[$id] : $id;
+                    }
                     woocommerce_wp_select(array('id' => '_selected_warehouse', 'label' => esc_html__('Warehouse ID', 'box-now-delivery'), 'wrapper_class' => '_selected_warehouse', 'options' => $warehouse_options));
                     wp_nonce_field('bndp_boxnow_admin_order_meta', 'bndp_boxnow_admin_order_meta_nonce');
                     ?>
@@ -401,6 +651,18 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
      */
     function bndp_box_now_delivery_checkout_field_update_order_meta($order)
     {
+        // Store API requests are handled by the dedicated Blocks callback below.
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            return;
+        }
+
+        if (!bndp_checkout_uses_box_now_delivery($order)) {
+            if (function_exists('WC') && WC()->session) {
+                WC()->session->set('boxnow_selected_locker_id', null);
+            }
+            return;
+        }
+
         $locker_id = '';
         $checkout_nonce = isset($_POST['bndp_boxnow_checkout_nonce']) ? sanitize_text_field(wp_unslash($_POST['bndp_boxnow_checkout_nonce'])) : '';
         $has_verified_checkout_post = $checkout_nonce && wp_verify_nonce($checkout_nonce, 'bndp_boxnow_checkout');
@@ -421,16 +683,34 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
 
         // Fallback: Try WooCommerce session
         if (empty($locker_id)) {
-            $locker_id = WC()->session->get('boxnow_selected_locker_id');
+            $locker_id = bndp_get_box_now_locker_id_from_request_data();
+        }
+
+        // On Blocks checkout the locker may already be persisted earlier in the Store API flow.
+        if (empty($locker_id)) {
+            $locker_id = sanitize_text_field($order->get_meta('_boxnow_locker_id'));
+        }
+
+        if (empty($locker_id)) {
+            if (bndp_should_skip_box_now_locker_enforcement()) {
+                return;
+            }
+
+            if (defined('REST_REQUEST') && REST_REQUEST) {
+                bndp_throw_store_api_locker_error();
+            }
+
+            if (function_exists('wc_add_notice')) {
+                wc_add_notice(esc_html(get_option('boxnow_locker_not_selected_message', 'Please select a locker first!')), 'error');
+            }
+            return;
         }
 
         // Save locker ID to order if available
-        if (!empty($locker_id)) {
-            $order->update_meta_data('_boxnow_locker_id', $locker_id);
-        }
+        $order->update_meta_data('_boxnow_locker_id', $locker_id);
 
-        // Save default warehouse if not already set
-        if (!metadata_exists('post', $order->get_id(), '_selected_warehouse')) {
+        // Save default warehouse if not already set.
+        if ('' === (string) $order->get_meta('_selected_warehouse', true)) {
             $warehouse_ids = explode(',', str_replace(' ', '', get_option('boxnow_warehouse_id', '')));
             if (!empty($warehouse_ids[0])) {
                 $order->update_meta_data('_selected_warehouse', $warehouse_ids[0]);
@@ -439,12 +719,12 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
 
         // Commit meta data to order
         $order->save();
-        WC()->session->set('boxnow_selected_locker_id', null);
+        if (function_exists('WC') && WC()->session) {
+            WC()->session->set('boxnow_selected_locker_id', null);
+        }
     }
     // Classic/shortcode Checkout - Runs when the order object is created, before saving.
     add_action('woocommerce_checkout_create_order', 'bndp_box_now_delivery_checkout_field_update_order_meta');
-    // Blocks Checkout - Final adjustments after order creation.
-    add_action('woocommerce_store_api_checkout_order_processed', 'bndp_box_now_delivery_checkout_field_update_order_meta');
 
     /**
      * Save locker id from WooCommerce Blocks checkout request.
@@ -454,36 +734,48 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
         // Normalize request to array whether it's WP_REST_Request or array
         if (is_object($request) && class_exists('WP_REST_Request') && $request instanceof WP_REST_Request) {
             $req_data = $request->get_params();
+            $request_method = strtoupper($request->get_method());
         } else {
             $req_data = is_array($request) ? $request : array();
+            $request_method = isset($_SERVER['REQUEST_METHOD'])
+                ? strtoupper(sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'])))
+                : '';
         }
 
-        // Save locker id if provided in the request (do not depend on shipping method availability at this stage)
-        $locker_id = '';
-        if (!empty($req_data['extensions']['box-now-delivery']['_boxnow_locker_id'])) {
-            $locker_id = sanitize_text_field($req_data['extensions']['box-now-delivery']['_boxnow_locker_id']);
-        } elseif (!empty($req_data['_boxnow_locker_id'])) {
-            $locker_id = sanitize_text_field($req_data['_boxnow_locker_id']);
+        $is_place_order_request = 'POST' === $request_method;
+
+        if (!bndp_checkout_uses_box_now_delivery($order)) {
+            if ($is_place_order_request && function_exists('WC') && WC()->session) {
+                WC()->session->set('boxnow_selected_locker_id', null);
+            }
+            return;
         }
 
-        // Fallback: pull from Woo session if available
-        if (empty($locker_id) && function_exists('WC') && WC()->session) {
-            $session_val = WC()->session->get('boxnow_selected_locker_id');
-            if (!empty($session_val)) {
-                $locker_id = sanitize_text_field($session_val);
+        $locker_id = bndp_get_box_now_locker_id_from_request_data($req_data);
+        if (empty($locker_id)) {
+            // PUT/PATCH requests recalculate checkout state while the customer is still editing.
+            if (!$is_place_order_request) {
+                return;
+            }
+
+            if (bndp_should_skip_box_now_locker_enforcement()) {
+                return;
+            }
+
+            bndp_throw_store_api_locker_error();
+        }
+
+        $order->update_meta_data('_boxnow_locker_id', $locker_id);
+
+        if ('' === (string) $order->get_meta('_selected_warehouse', true)) {
+            $warehouse_ids = explode(',', str_replace(' ', '', get_option('boxnow_warehouse_id', '')));
+            if (!empty($warehouse_ids[0])) {
+                $order->add_meta_data('_selected_warehouse', $warehouse_ids[0]);
             }
         }
 
-        if (!empty($locker_id)) {
-            $order->update_meta_data('_boxnow_locker_id', $locker_id);
-        }
-
-        if (!metadata_exists('post', $order->get_id(), '_selected_warehouse')) {
-            $order->add_meta_data('_selected_warehouse', explode(',', str_replace(' ', '', get_option('boxnow_warehouse_id', '')))[0]);
-        }
-
-        // Clear session value after saving
-        if (function_exists('WC') && WC()->session) {
+        // Keep the fallback value during draft updates; clear it after final submission.
+        if ($is_place_order_request && function_exists('WC') && WC()->session) {
             WC()->session->set('boxnow_selected_locker_id', null);
         }
         
@@ -617,6 +909,10 @@ function boxnow_order_completed($order_id)
 
     $order = wc_get_order($order_id);
 
+    if (!$order) {
+        return;
+    }
+
     if ($order->has_shipping_method('box_now_delivery')) {
         // Check if a voucher has already been created and return, 'yes' evaluates as true
         if ($order->get_meta('_voucher_created', true)) {
@@ -625,7 +921,7 @@ function boxnow_order_completed($order_id)
         try {
             $prep_data = boxnow_prepare_data($order, true);
             $response = boxnow_order_completed_delivery_request($prep_data, $order->get_id(), 1);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             // Since this is a hook based action that cannot show an alert dialog, add order note to inform user of the error
             if (isset($order)) {
                 $order->add_order_note("BOX NOW: Error, unable to create voucher.", false);
@@ -789,6 +1085,13 @@ function boxnow_get_compartment_size($dimensions)
 }
 
 /**
+ * Prepare order data for BOX NOW voucher creation.
+ *
+ * Billing phone remains the primary destination contact because default and
+ * older WooCommerce checkouts store the customer phone on the billing address.
+ * Shipping phone is only used as a fallback when billing phone is empty, and
+ * the method_exists() guard keeps older WC_Order implementations from triggering a fatal error.
+ *
  * @throws Exception
  */
 function boxnow_prepare_data($order, bool $calculate_compartment_sizes = false)
@@ -865,9 +1168,13 @@ function boxnow_prepare_data($order, bool $calculate_compartment_sizes = false)
     }
 
     // Ensure the country's prefix is not missing
-    // Get the billing address client phone because shipping address does not have phone
     $client_phone = $order->get_billing_phone();
-    $tel = $client_phone;
+
+    if (empty($client_phone) && method_exists($order, 'get_shipping_phone')) {
+        $client_phone = $order->get_shipping_phone();
+    }
+
+    $tel = trim($client_phone);
 
     if (substr($tel, 0, 1) != '+') {
         // If the phone starts with "00", replace "00" with "+"
@@ -890,6 +1197,12 @@ function boxnow_prepare_data($order, bool $calculate_compartment_sizes = false)
     foreach ($order->get_items() as $item) {
         $product = $item->get_product();
         $quantity = $item->get_quantity();
+
+        // Products and variations can be deleted after the order was placed.
+        if (!$product || !is_callable(array($product, 'get_weight'))) {
+            continue;
+        }
+
         $product_weight = $product->get_weight();
 
         // Check if weight is not null and is a numeric value, else consider it as 0
@@ -1043,11 +1356,51 @@ add_action('wp_ajax_nopriv_bndp_set_boxnow_locker', 'boxnow_set_locker_handler')
 // AJAX handler to remove saved locker id from WooCommerce Session
 function boxnow_clear_locker_handler()
 {
+    $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
+
+    if (!$nonce || !wp_verify_nonce($nonce, 'box-now-delivery-nonce')) {
+        wp_send_json_error(array('message' => 'Invalid nonce'), 403);
+    }
+
     WC()->session->set('boxnow_selected_locker_id', null);
     wp_send_json_success(array('message' => 'Locker ID cleared from session'));
 }
 
 add_action('wp_ajax_bndp_clear_boxnow_locker', 'boxnow_clear_locker_handler');
+add_action('wp_ajax_nopriv_bndp_clear_boxnow_locker', 'boxnow_clear_locker_handler');
+
+function boxnow_is_admin_order_edit_screen($hook = '')
+{
+    if (!is_admin()) {
+        return false;
+    }
+
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if ($screen) {
+        if ($screen->post_type === 'shop_order' && $screen->base === 'post') {
+            return true;
+        }
+
+        if ($screen->id === 'woocommerce_page_wc-orders') {
+            $action = sanitize_key(bndp_get_request_text_value('action', array('get')));
+            return $action === 'edit';
+        }
+    }
+
+    if ($hook === 'woocommerce_page_wc-orders') {
+        $action = sanitize_key(bndp_get_request_text_value('action', array('get')));
+        return $action === 'edit';
+    }
+
+    if ($hook === 'post.php') {
+        $post_id = absint(bndp_get_request_text_value('post', array('get')));
+        if ($post_id > 0) {
+            return get_post_type($post_id) === 'shop_order';
+        }
+    }
+
+    return false;
+}
 
 // Print Vouchers section
 function box_now_delivery_vouchers_input($order)
@@ -1072,14 +1425,15 @@ function box_now_delivery_vouchers_input($order)
                 $max_vouchers += $item->get_quantity();
             }
 
-            $parcel_ids = $order->get_meta('_boxnow_parcel_ids');
+            $parcel_ids = function_exists('boxnow_get_order_parcel_ids') ? boxnow_get_order_parcel_ids($order) : $order->get_meta('_boxnow_parcel_ids');
+            if (!is_array($parcel_ids)) {
+                $parcel_ids = !empty($parcel_ids) ? array($parcel_ids) : array();
+            }
             $vouchers_created = $order->get_meta('_boxnow_vouchers_created');
             $button_disabled = $vouchers_created ? 'disabled' : '';
 
             // Get the parcel IDs for the current order and pass them to the JavaScript code
-            if (!empty($parcel_ids)) {
-                echo '<input type="hidden" id="box_now_parcel_ids" value="' . esc_attr(json_encode($parcel_ids ?: [])) . '">';
-            }
+            echo '<input type="hidden" id="box_now_parcel_ids" value="' . esc_attr(wp_json_encode($parcel_ids)) . '">';
 
             // Add the hidden input field for create_vouchers_enabled
             echo '<input type="hidden" id="create_vouchers_enabled" value="true" />';
@@ -1089,10 +1443,12 @@ function box_now_delivery_vouchers_input($order)
             if ($parcel_ids) {
                 $links_html = '';
                 foreach ($parcel_ids as $parcel_id) {
-                    $links_html .= '<button data-parcel-id="' . $parcel_id . '"  class="parcel-id-link box-now-link">&#128196; ' . $parcel_id . '</button>';
-                    $links_html .= '<button class="cancel-voucher-btn" data-order-id="' . $order->get_id() . '" style="color: white; background-color: red; border-radius: 4px; margin: 4px 0; border: none; cursor: pointer; padding: 6px 12px; font-size: 13px;">&#9664; Cancel Voucher</button><br>';
                     $tracking_url = 'https://t.boxnow.gr/?track=' . rawurlencode($parcel_id);
-                    $links_html .= '<a class="box-now-track-btn" href="' . esc_url($tracking_url) . '" target="_blank" rel="noopener noreferrer" style="color: white; background-color: #f6a623; border-radius: 4px; margin: 4px 0; border: none; cursor: pointer; padding: 6px 12px;max-height:17px; min-width:103px; font-size: 13px; display: inline-block; text-decoration: none;">&#128230; Track Parcel</a><br>';
+                    $links_html .= '<div class="box-now-voucher-actions">';
+                    $links_html .= '<button type="button" data-parcel-id="' . esc_attr($parcel_id) . '" class="button parcel-id-link box-now-link box-now-admin-action box-now-admin-action--voucher dashicons-before dashicons-printer">Print ' . esc_html($parcel_id) . '</button>';
+                    $links_html .= '<button type="button" class="button cancel-voucher-btn box-now-admin-action box-now-admin-action--danger dashicons-before dashicons-no-alt" data-order-id="' . esc_attr($order->get_id()) . '">Cancel</button>';
+                    $links_html .= '<a class="button box-now-track-btn box-now-admin-action box-now-admin-action--track dashicons-before dashicons-location-alt" href="' . esc_url($tracking_url) . '" target="_blank" rel="noopener noreferrer">Track</a>';
+                    $links_html .= '</div>';
                 }
             } else {
                 $links_html = '';
@@ -1100,30 +1456,35 @@ function box_now_delivery_vouchers_input($order)
         ?>
             <div class="box-now-vouchers">
                 <h4>Create BOX NOW Voucher(s)</h4>
-                <p>Vouchers for this order (Max Vouchers: <span style="font-weight: bold; color: red;"><?php echo esc_html($max_vouchers); ?></span>)</p>
+                <p>Vouchers for this order (Max Vouchers: <strong class="box-now-voucher-limit"><?php echo esc_html($max_vouchers); ?></strong>)</p>
                 <input type="hidden" id="box_now_order_id" value="<?php echo esc_attr($order->get_id()); ?>" />
-                <input pattern="^[1-<?php echo esc_attr($max_vouchers); ?>]$" type="number" id="box_now_voucher_code" name="box_now_voucher_code" min="1" max="<?php echo esc_attr($max_vouchers); ?>" value="1" placeholder="Enter voucher quantity" style="width: 50%;" />
+                <input pattern="^[1-<?php echo esc_attr($max_vouchers); ?>]$" type="number" id="box_now_voucher_code" name="box_now_voucher_code" min="1" max="<?php echo esc_attr($max_vouchers); ?>" value="1" placeholder="Enter voucher quantity" />
                 <!-- Add buttons for each compartment size -->
-                <div class="box-now-compartment-size-buttons" style="margin-top: 10px;">
-                    <button type="button" id="box_now_create_voucher_small" class="button button-primary" data-compartment-size="small" <?php echo esc_attr($button_disabled); ?> style="display: block; margin-bottom: 10px;">Create Vouchers (Small)</button>
-                    <button type="button" id="box_now_create_voucher_medium" class="button button-primary" data-compartment-size="medium" <?php echo esc_attr($button_disabled); ?> style="display: block; margin-bottom: 10px;">Create Vouchers (Medium)</button>
-                    <button type="button" id="box_now_create_voucher_large" class="button button-primary" data-compartment-size="large" <?php echo esc_attr($button_disabled); ?> style="display: block; margin-bottom: 10px;">Create Vouchers (Large)</button>
-                </div>
-                <div id="box_now_voucher_link"><?php echo wp_kses_post($links_html); ?></div>
-            </div>
+	                <div class="box-now-compartment-size-buttons">
+	                    <button type="button" id="box_now_create_voucher_small" class="button button-primary box-now-admin-action dashicons-before dashicons-plus-alt2" data-compartment-size="small" <?php echo esc_attr($button_disabled); ?>>Create Vouchers (Small)</button>
+	                    <button type="button" id="box_now_create_voucher_medium" class="button button-primary box-now-admin-action dashicons-before dashicons-plus-alt2" data-compartment-size="medium" <?php echo esc_attr($button_disabled); ?>>Create Vouchers (Medium)</button>
+	                    <button type="button" id="box_now_create_voucher_large" class="button button-primary box-now-admin-action dashicons-before dashicons-plus-alt2" data-compartment-size="large" <?php echo esc_attr($button_disabled); ?>>Create Vouchers (Large)</button>
+	                </div>
+	                <button type="button" id="box_now_cancel_all_vouchers" class="button box-now-admin-action box-now-admin-action--danger-all dashicons-before dashicons-trash" data-order-id="<?php echo esc_attr($order->get_id()); ?>"<?php echo empty($parcel_ids) ? ' style="display:none;"' : ''; ?>>Cancel All Vouchers</button>
+	                <div id="box_now_voucher_link"><?php echo wp_kses_post($links_html); ?></div>
+	            </div>
             <?php
         }
     }
 }
 add_action('woocommerce_admin_order_data_after_shipping_address', 'box_now_delivery_vouchers_input', 10, 1);
 
-function box_now_delivery_vouchers_js()
+function box_now_delivery_vouchers_js($hook = '')
 {
+    if (!boxnow_is_admin_order_edit_screen($hook)) {
+        return;
+    }
+
     // Enqueue your script here if you haven't already
-    wp_enqueue_script('box-now-delivery-js', plugin_dir_url(__FILE__) . 'js/box-now-create-voucher.js', array('jquery'), BOX_NOW_DELIVERY_VERSION, true);
+    wp_enqueue_script('box-now-create-voucher-js', plugin_dir_url(__FILE__) . 'js/box-now-create-voucher.js', array('jquery'), BOX_NOW_DELIVERY_VERSION, true);
 
     // Pass the nonce to your script
-    wp_localize_script('box-now-delivery-js', 'myAjax', array(
+    wp_localize_script('box-now-create-voucher-js', 'myAjax', array(
             'nonce' => wp_create_nonce('box-now-delivery-nonce'),
             'ajaxurl' => admin_url('admin-ajax.php'),
     ));
@@ -1139,7 +1500,7 @@ function boxnow_cancel_voucher_ajax_handler()
     }
 
     // Check user capabilities
-    if (!current_user_can('manage_woocommerce')) {
+    if (!current_user_can('edit_shop_orders')) {
         wp_send_json_error('Permission denied');
         return;
     }
@@ -1160,25 +1521,31 @@ function boxnow_cancel_voucher_ajax_handler()
         // Call the function to cancel the order on the BOX NOW API
         $api_cancellation_result = boxnow_send_cancellation_request($parcel_id);
         if ($api_cancellation_result === 'success') {
-            // Call the function to cancel the order in WooCommerce
-            boxnow_order_canceled($order_id, '', 'wc-boxnow-canceled', $order);
+            if (function_exists('boxnow_remove_order_parcel_ids')) {
+                boxnow_remove_order_parcel_ids($order, array($parcel_id));
+            } else {
+                $parcel_ids = $order->get_meta('_boxnow_parcel_ids', true);
+                if (!is_array($parcel_ids)) {
+                    $parcel_ids = !empty($parcel_ids) ? array($parcel_ids) : array();
+                }
 
-            // Remove the parcel_id from the parcel_ids array in the order metadata
-            $parcel_ids = $order->get_meta('_boxnow_parcel_ids');
-            if (($key = array_search($parcel_id, $parcel_ids)) !== false) {
-                unset($parcel_ids[$key]);
-                $parcel_ids = array_values($parcel_ids); // Reindex the array
+                if (($key = array_search($parcel_id, $parcel_ids, true)) !== false) {
+                    unset($parcel_ids[$key]);
+                    $order->update_meta_data('_boxnow_parcel_ids', array_values($parcel_ids));
+                }
 
-                // Add order note to inform user of BOX NOW voucher cancellatioon
-                $order->add_order_note('BOX NOW voucher cancelled successfully.', false);
-                
-                // Update the parcel_ids metadata only if the parcel ID was removed
-                $order->update_meta_data('_boxnow_parcel_ids', $parcel_ids);
+                if ($order->get_meta('_boxnow_parcel_id', true) === $parcel_id) {
+                    $order->delete_meta_data('_boxnow_parcel_id');
+                }
+
                 $order->save();
             }
 
+            // Add order note to inform user of BOX NOW voucher cancellation
+            $order->add_order_note('BOX NOW voucher cancelled successfully: ' . $parcel_id, false);
+
             // Send a success response
-            wp_send_json_success();
+            wp_send_json_success($parcel_id);
         } else {
             // Send an error response with the API error message
             wp_send_json_error("BOX NOW API cancellation failed: " . $api_cancellation_result);
@@ -1190,13 +1557,86 @@ function boxnow_cancel_voucher_ajax_handler()
 }
 add_action('wp_ajax_cancel_voucher', 'boxnow_cancel_voucher_ajax_handler');
 
+function boxnow_cancel_all_vouchers_ajax_handler()
+{
+    $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
+    if (!$nonce || !wp_verify_nonce($nonce, 'box-now-delivery-nonce')) {
+        wp_send_json_error('Invalid nonce');
+        return;
+    }
+
+    if (!current_user_can('edit_shop_orders')) {
+        wp_send_json_error('Permission denied');
+        return;
+    }
+
+    $order_id = isset($_POST['order_id']) ? absint(wp_unslash($_POST['order_id'])) : 0;
+    if (!$order_id) {
+        wp_send_json_error('Invalid order ID');
+        return;
+    }
+
+    $order = wc_get_order($order_id);
+    if (!$order) {
+        wp_send_json_error('Invalid order ID');
+        return;
+    }
+
+    if (function_exists('boxnow_order_has_boxnow_shipping_method') && !boxnow_order_has_boxnow_shipping_method($order)) {
+        wp_send_json_error('This order does not use BOX NOW shipping');
+        return;
+    }
+
+    $parcel_ids = function_exists('boxnow_get_order_parcel_ids') ? boxnow_get_order_parcel_ids($order) : (array) $order->get_meta('_boxnow_parcel_ids', true);
+    if (empty($parcel_ids)) {
+        $order->add_order_note('BOX NOW: Cancel all vouchers requested, but no parcel IDs were found.', false);
+        wp_send_json_error('No voucher parcel IDs were found for this order');
+        return;
+    }
+
+    $cancelled_parcel_ids = array();
+    $failed_cancellations = array();
+
+    foreach ($parcel_ids as $parcel_id) {
+        $result = boxnow_send_cancellation_request($parcel_id);
+
+        if ($result === 'success') {
+            $cancelled_parcel_ids[] = $parcel_id;
+        } else {
+            $failed_cancellations[] = $parcel_id . ' (' . $result . ')';
+        }
+    }
+
+    $remaining_parcel_ids = $parcel_ids;
+    if (!empty($cancelled_parcel_ids) && function_exists('boxnow_remove_order_parcel_ids')) {
+        $remaining_parcel_ids = boxnow_remove_order_parcel_ids($order, $cancelled_parcel_ids);
+        $order->add_order_note('BOX NOW voucher cancellation request sent for all selected parcel ID(s): ' . implode(', ', $cancelled_parcel_ids), false);
+    }
+
+    if (!empty($failed_cancellations)) {
+        $order->add_order_note('BOX NOW voucher cancellation failed for parcel ID(s): ' . implode(', ', $failed_cancellations), false);
+    }
+
+    if (empty($cancelled_parcel_ids)) {
+        wp_send_json_error('BOX NOW API cancellation failed: ' . implode(', ', $failed_cancellations));
+        return;
+    }
+
+    wp_send_json_success(array(
+            'cancelled_parcel_ids' => $cancelled_parcel_ids,
+            'failed_cancellations' => $failed_cancellations,
+            'remaining_parcel_ids' => $remaining_parcel_ids,
+    ));
+}
+add_action('wp_ajax_cancel_all_vouchers', 'boxnow_cancel_all_vouchers_ajax_handler');
+
 function boxnow_create_box_now_vouchers_callback()
 {
     // Check for the nonce
     check_ajax_referer('box-now-delivery-nonce', 'security');
 
     // Check user capabilities
-    if (!current_user_can('manage_woocommerce')) {
+    if (!current_user_can('edit_shop_orders')) {
         wp_send_json_error('Permission denied');
         return;
     }
@@ -1263,7 +1703,7 @@ add_action('wp_ajax_create_box_now_vouchers', 'boxnow_create_box_now_vouchers_ca
 function boxnow_print_box_now_voucher_callback()
 {
     // Check user capabilities
-    if (!current_user_can('manage_woocommerce')) {
+    if (!current_user_can('edit_shop_orders')) {
         wp_die('Permission denied');
     }
 
@@ -1344,8 +1784,12 @@ function boxnow_voucher_email_validation()
 add_action('admin_footer', 'boxnow_voucher_email_validation');
 
 add_action('admin_enqueue_scripts', 'boxnow_load_jquery_in_admin');
-function boxnow_load_jquery_in_admin()
+function boxnow_load_jquery_in_admin($hook = '')
 {
+    if (!boxnow_is_admin_order_edit_screen($hook)) {
+        return;
+    }
+
     // Enqueue jQuery in the admin panel (although it's already included by default, it's fine to add it again)
     wp_enqueue_script('jquery');
 
@@ -1360,7 +1804,7 @@ function boxnow_load_jquery_in_admin()
     $button_color = esc_attr(get_option('boxnow_button_color', '#6CD04E '));
     $button_text = esc_attr(get_option('boxnow_button_text', 'Pick a Locker'));
 
-    wp_localize_script('box-now-delivery-js', 'boxNowDeliverySettings', array(
+    wp_localize_script('box-now-delivery-admin-selector', 'boxNowDeliverySettings', array(
         'partnerId' => esc_attr(get_option('boxnow_partner_id', '')),
         'embeddedIframe' => esc_attr(get_option('embedded_iframe', '')),
         'displayMode' => esc_attr(get_option('box_now_display_mode', 'popup')),
@@ -1455,6 +1899,8 @@ function boxnow_thankyou_locker_ui($order_id)
     $shipping_methods = $order->get_shipping_methods();
     $shipping_country = $order->get_shipping_country();
     $billing_country = $order->get_billing_country();
+    $carrier_name = '';
+    $carrier_id = '';
 
     if (!empty($shipping_methods)) {
         foreach ($shipping_methods as $method) {
@@ -1462,69 +1908,36 @@ function boxnow_thankyou_locker_ui($order_id)
             $carrier_id = $method->get_method_id();
             break;
         }
-    } else {
-        $carrier_id = 'No shipping method found';
     }
 
     if ($carrier_id === 'box_now_delivery') {
         $locker_id = $order->get_meta('_boxnow_locker_id');
 
-        echo '<div class="boxnow-thankyou" style="margin:20px 0; padding:15px; border:1px solid #ddd; border-radius:8px; text-align:center;clear: both;">';
+        echo '<div class="boxnow-thankyou">';
 
         if (!empty($locker_id)) {
-            echo '<h3>Your BOX NOW Locker Selection</h3>';
-            echo '<p><strong>Locker ID:</strong> ' . esc_html($locker_id) . '</p>';
-            echo '<p>You’re all set! Your order will be delivered to the selected locker.</p>';
-            echo '<a href="#" id="box_now_delivery_button" style="display:inline-block; margin-top:10px; padding:10px 20px; background:#44d62d; color:#fff; font-weight:bold; text-decoration:none; border-radius:5px;">Choose a different Locker</a>';
+            echo '<h3 class="boxnow-thankyou__title">' . esc_html__('Your BOX NOW Locker Selection', 'box-now-delivery') . '</h3>';
+            echo '<p class="boxnow-thankyou__locker-id"><strong>' . esc_html__('Locker ID:', 'box-now-delivery') . '</strong> <span>' . esc_html($locker_id) . '</span></p>';
+            echo '<p class="boxnow-thankyou__description">' . esc_html__("You're all set! Your order will be delivered to the selected locker.", 'box-now-delivery') . '</p>';
+            echo '<p class="boxnow-thankyou__status" role="status" aria-live="polite"></p>';
+            echo '<a href="#" id="box_now_delivery_button" class="boxnow-thankyou__button">' . esc_html__('Choose a different Locker', 'box-now-delivery') . '</a>';
         } else {
-            echo '<h3>Did you select a locker?</h3>';
-            echo '<p>No locker is selected yet. Choose one now for fast delivery!</p>';
-            echo '<a href="#" id="box_now_delivery_button" style="display:inline-block; margin-top:10px; padding:10px 20px; background:#44d62d; color:#fff; font-weight:bold; text-decoration:none; border-radius:5px;">Choose Locker</a>';
+            echo '<h3 class="boxnow-thankyou__title">' . esc_html__('Did you select a locker?', 'box-now-delivery') . '</h3>';
+            echo '<p class="boxnow-thankyou__locker-id" hidden><strong>' . esc_html__('Locker ID:', 'box-now-delivery') . '</strong> <span></span></p>';
+            echo '<p class="boxnow-thankyou__description">' . esc_html__('No locker is selected yet. Choose one now for fast delivery!', 'box-now-delivery') . '</p>';
+            echo '<p class="boxnow-thankyou__status" role="status" aria-live="polite"></p>';
+            echo '<a href="#" id="box_now_delivery_button" class="boxnow-thankyou__button">' . esc_html__('Choose Locker', 'box-now-delivery') . '</a>';
 
-            // Modal HTML + JavaScript + CSS
+            // Modal HTML and behavior.
             echo '
             <div id="boxnow-modal" class="boxnow-modal">
                 <div class="boxnow-modal-content">
                     <span class="boxnow-close">&times;</span>
-                    <h3>No Locker Selected</h3>
-                    <p>Please choose a locker to complete your delivery.</p>
-                    <a href="#" id="boxnow-modal-button" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#44d62d; color:#fff; font-weight:bold; text-decoration:none; border-radius:5px;">Choose Locker</a>
+                    <h3>' . esc_html__('No Locker Selected', 'box-now-delivery') . '</h3>
+                    <p>' . esc_html__('Please choose a locker to complete your delivery.', 'box-now-delivery') . '</p>
+                    <a href="#" id="boxnow-modal-button" class="boxnow-thankyou__button">' . esc_html__('Choose Locker', 'box-now-delivery') . '</a>
                 </div>
             </div>
-
-            <style>
-                .boxnow-modal {
-                    display: block;
-                    position: fixed;
-                    z-index: 1000;
-                    left: 0;
-                    top: 0;
-                    width: 100%;
-                    height: 100%;
-                    overflow: auto;
-                    background-color: rgba(0, 0, 0, 0.5);
-                }
-                .boxnow-modal-content {
-                    background-color: #fff;
-                    margin: 10% auto;
-                    padding: 20px;
-                    border: 1px solid #ccc;
-                    border-radius: 8px;
-                    width: 90%;
-                    max-width: 400px;
-                    text-align: center;
-                }
-                .boxnow-close {
-                    color: #aaa;
-                    float: right;
-                    font-size: 28px;
-                    font-weight: bold;
-                    cursor: pointer;
-                }
-                .boxnow-close:hover {
-                    color: #000;
-                }
-            </style>
 
             <script>
                 document.addEventListener("DOMContentLoaded", function() {
@@ -1627,7 +2040,12 @@ function bndp_thankyou_php_boxnow() {
             $settings = array(
                         'ajax_url' => admin_url('admin-ajax.php'),
                         'nonce' => wp_create_nonce('box-now-delivery-nonce'),
-                        'order_id' => get_query_var('order-received'));
+                        'order_id' => get_query_var('order-received'),
+                        'selected_title' => __('Your BOX NOW Locker Selection', 'box-now-delivery'),
+                        'selected_description' => __("You're all set! Your order will be delivered to the selected locker.", 'box-now-delivery'),
+                        'changed_message' => __('Locker changed successfully.', 'box-now-delivery'),
+                        'save_error_message' => __('The locker could not be saved. Please try again.', 'box-now-delivery'),
+                    );
             wp_localize_script('box-now-ty', 'thankyou_boxnow', $settings);
             
             // Force-display the 'select a locker' BOX NOW button on thank you page after every Blocks render 

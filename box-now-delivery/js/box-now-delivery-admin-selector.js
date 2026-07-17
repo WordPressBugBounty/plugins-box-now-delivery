@@ -23,21 +23,23 @@
     }
 
     function GetUserCountry() {
-        const boxNowCountries = ['GR', 'CY', 'BG', 'HR'];
+        const boxNowCountries = ['GR', 'CY', 'BG', 'HR', 'SI'];
 
         // Helper to validate country
         const isValidCountry = (country) => boxNowCountries.includes(country);
 
         // Try shipping first
         const shippingSelect = document.querySelector('#_shipping_country');
-        if (shippingSelect?.value && isValidCountry(shippingSelect.value)) {
-            return shippingSelect.value;
+        const shippingCountry = shippingSelect?.value?.toUpperCase();
+        if (shippingCountry && isValidCountry(shippingCountry)) {
+            return shippingCountry;
         }
 
         // Then billing
         const billingSelect = document.querySelector('#_billing_country');
-        if (billingSelect?.value && isValidCountry(billingSelect.value)) {
-            return billingSelect.value;
+        const billingCountry = billingSelect?.value?.toUpperCase();
+        if (billingCountry && isValidCountry(billingCountry)) {
+            return billingCountry;
         }
 
         // Fallback
@@ -108,6 +110,8 @@
             src = "https://widget-v5.boxnow.bg/popup.html";
         } else if (country === "HR") {
             src = "https://widget-v5.boxnow.hr/popup.html";
+        } else if (country === "SI") {
+            src = "https://widget-v5.boxnow.si/popup.html";
         } else {
             src = "https://widget-v5.boxnow.gr/popup.html";
         }
@@ -126,7 +130,7 @@
         let iframe = $("<iframe>", {
             id: "boxnow_widget_admin_page_iframe",
             src: src,
-            allow: "geolocation",
+            allow: "geolocation https://*.boxnow.gr https://*.boxnow.cy https://*.boxnow.bg https://*.boxnow.si https://*.boxnow.hr",
             css: {
                 position: "fixed",
                 top: "50%",

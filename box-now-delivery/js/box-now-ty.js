@@ -110,20 +110,6 @@
             window.location.pathname.split('/').filter(segment => /^\d+$/.test(segment))[0];
         var order_key = new URLSearchParams(window.location.search).get('key');
 
-        // Try to select elements and apply styles
-        const strongTag = document.querySelector('.boxnow-thankyou p strong');
-        const element = document.getElementById('box_now_selected_locker_details');
-
-        if (element) {
-            element.style.margin = '1% auto';  // red background
-            element.style.maxWidth = '20vw';            // white text
-        }
-        if (strongTag && strongTag.nextSibling) {
-            const lockerId = strongTag.nextSibling.textContent.trim();
-            // Set new locker ID
-            strongTag.nextSibling.textContent = ' ' + locker_id + ' Locker Changed Sucessfuly!';
-        }
-
         // Fire the AJAX request to save locker
         jQuery.ajax({
             url: (typeof thankyou_boxnow !== 'undefined' && thankyou_boxnow.ajax_url) ? thankyou_boxnow.ajax_url : (window.ajaxurl || '/wp-admin/admin-ajax.php'),
@@ -137,18 +123,55 @@
             },
             success: function (response) {
                 if (response.success) {
+                    updateThankYouPage(locker_id);
                     localStorage.removeItem("box_now_selected_locker");
                 } else {
-                    console.error('Error saving locker ID:', response.data.message);
+                    showSaveError();
+                    console.error('Error saving locker ID:', response.data);
                 }
             }
             ,
             error: function () {
+                showSaveError();
                 console.error('AJAX request thankyou_php_boxnow failed.');
             }
         });
         if (boxNowDeliverySettings.displayMode === "popup") {
             closeBoxNowPopup();
+        }
+    }
+
+    function updateThankYouPage(lockerId) {
+        const lockerIdRow = document.querySelector('.boxnow-thankyou__locker-id');
+        const lockerIdValue = document.querySelector('.boxnow-thankyou__locker-id span');
+        const title = document.querySelector('.boxnow-thankyou__title');
+        const description = document.querySelector('.boxnow-thankyou__description');
+        const statusMessage = document.querySelector('.boxnow-thankyou__status');
+
+        if (lockerIdValue) {
+            lockerIdValue.textContent = lockerId;
+        }
+        if (lockerIdRow) {
+            lockerIdRow.hidden = false;
+        }
+        if (title && thankyou_boxnow.selected_title) {
+            title.textContent = thankyou_boxnow.selected_title;
+        }
+        if (description && thankyou_boxnow.selected_description) {
+            description.textContent = thankyou_boxnow.selected_description;
+        }
+        if (statusMessage) {
+            statusMessage.classList.remove('boxnow-thankyou__status--error');
+            statusMessage.textContent = thankyou_boxnow.changed_message || 'Locker changed successfully.';
+        }
+    }
+
+    function showSaveError() {
+        const statusMessage = document.querySelector('.boxnow-thankyou__status');
+
+        if (statusMessage) {
+            statusMessage.textContent = thankyou_boxnow.save_error_message || 'The locker could not be saved. Please try again.';
+            statusMessage.classList.add('boxnow-thankyou__status--error');
         }
     }
 
@@ -185,6 +208,8 @@
             src = "https://widget-v5.boxnow.bg/popup.html";
         } else if (country === "HR") {
             src = "https://widget-v5.boxnow.hr/popup.html";
+        } else if (country === "SI") {
+            src = "https://widget-v5.boxnow.si/popup.html";
         } else {
             src = "https://widget-v5.boxnow.gr/popup.html";
         }
@@ -203,7 +228,7 @@
         let iframe = $("<iframe>", {
             id: "boxnow_widget_thank_you_page_iframe",
             src: src,
-            allow: "geolocation",
+            allow: "geolocation https://*.boxnow.gr https://*.boxnow.cy https://*.boxnow.bg https://*.boxnow.si https://*.boxnow.hr",
             css: {
                 position: "fixed",
                 top: "50%",

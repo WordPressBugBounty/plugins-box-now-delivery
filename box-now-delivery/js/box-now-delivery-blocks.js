@@ -21,6 +21,12 @@ let codTitleObserver = null;
 let codTitleObserverIsBoxNow = null;
 let codOriginalTitle = null;
 let codOriginalDescription = null;
+let checkoutUIRefreshScheduled = false;
+let checkoutUIRetryTimer = null;
+let lastCheckoutIsCalculating = null;
+let shippingRatesObserver = null;
+let observedShippingRatesRoot = null;
+let lastPersistedLockerId = null;
 const codTitle = (typeof boxNowDeliverySettings !== 'undefined' && boxNowDeliverySettings.codTitle)
     ? boxNowDeliverySettings.codTitle
     : 'BOX NOW PAY ON THE GO!';
@@ -29,6 +35,14 @@ const codDescription = (typeof boxNowDeliverySettings !== 'undefined' && boxNowD
     : '';
 
 wp.data.subscribe(() => {
+    // Blocks can replace the shipping option markup while totals are recalculated.
+    // Reconcile our UI once that calculation has settled.
+    const isCalculating = getCheckoutIsCalculating();
+    if (lastCheckoutIsCalculating === true && isCalculating === false) {
+        refreshBoxNowCheckoutUI();
+    }
+    lastCheckoutIsCalculating = isCalculating;
+
     const selectedRates = getSelectedShippingRates();
     if (!selectedRates.length) {
         scheduleCodTitleUpdate(false);
@@ -49,9 +63,10 @@ wp.data.subscribe(() => {
     }
 
     const embeddedMapMissing = isEmbedded && isBoxNow && !document.querySelector('#box_now_delivery_embedded_map_blocks');
+    const embeddedIframeMissing = isEmbedded && isBoxNow && !document.querySelector('#box_now_delivery_embedded_map_blocks iframe');
     const buttonMissing = !isEmbedded && isBoxNow && !document.querySelector('#box_now_delivery_button_blocks');
 
-    if (rate.rate_id === lastRateId && !countryChanged && !embeddedMapMissing && !buttonMissing) {
+    if (rate.rate_id === lastRateId && !countryChanged && !embeddedMapMissing && !embeddedIframeMissing && !buttonMissing) {
         return;
     }
 
@@ -62,16 +77,17 @@ wp.data.subscribe(() => {
         lastIsBoxNow = isBoxNow;
     }
 
-    if (isBoxNow && (countryChanged || embeddedMapMissing || buttonMissing)) {
+    if (isBoxNow && (countryChanged || embeddedMapMissing || embeddedIframeMissing || buttonMissing)) {
         addBoxNowButton();
     }
 
-    if (isEmbedded && isBoxNow && (countryChanged || embeddedMapMissing)) {
+    if (isEmbedded && isBoxNow && (countryChanged || embeddedMapMissing || embeddedIframeMissing)) {
         refreshEmbeddedMapBlocks();
     }
 
     const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
     toggleBoxNowPickLockerUI(isBoxNow && !!lockerId);
+    toggleExpressCheckoutForBoxNow(isBoxNow, !!lockerId);
     if (isBoxNow) {
         showSelectedLockerDetailsFromLocalStorage();
     }
@@ -79,51 +95,52 @@ wp.data.subscribe(() => {
 
 const boxNowTrustedOriginRegex = /^https:\/\/.*\.boxnow\..*$/;
 
+function registerStripeExpressCheckoutExtensionData() {
+    if (window._bndpStripeExpressExtensionRegistered) {
+        return;
+    }
+
+    if (!(window.wp && wp.hooks && typeof wp.hooks.addFilter === 'function')) {
+        return;
+    }
+
+    wp.hooks.addFilter(
+        'wcstripe.express-checkout.cart-place-order-extension-data',
+        'box-now-delivery',
+        function (extensionData) {
+            const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
+
+            if (!lockerId || !isBoxNowDeliverySelected()) {
+                return extensionData;
+            }
+
+            return {
+                ...extensionData,
+                'box-now-delivery': {
+                    ...(extensionData['box-now-delivery'] || {}),
+                    _boxnow_locker_id: lockerId
+                }
+            };
+        }
+    );
+
+    window._bndpStripeExpressExtensionRegistered = true;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     initBoxNowBlocksIntegration();
+    registerStripeExpressCheckoutExtensionData();
 
     // Optional: initial add of button in case checkout is already rendered
     refreshBoxNowCheckoutUI();
 
-    // Initialize Blocks registry filters
-    waitForWooCommerceBlocksRegistry(() => {
-        const { registerCheckoutFilters } = window.wc.blocksCheckout;
-
-        registerCheckoutFilters('box-now-delivery', {
-            validateCheckoutResponse: (checkoutResponse) => {
-                const shippingMethod = checkoutResponse.shipping_method;
-                const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
-
-                if (shippingMethod && shippingMethod.includes('box_now_delivery') && !lockerId) {
-                    throw {
-                        code: 'box-now-delivery-locker-not-selected',
-                        message: boxNowDeliverySettings.lockerNotSelectedMessage || 'Please select a locker first!',
-                        messageContext: 'wc/checkout'
-                    };
-                }
-                return checkoutResponse;
-            },
-            beforeProcessCheckoutResponse: (checkoutData) => {
-                const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
-                if (lockerId) {
-                    // Top-level property for PHP
-                    checkoutData._boxnow_locker_id = lockerId;
-
-                    // Legacy extensions for backward compatibility
-                    checkoutData.extensions = checkoutData.extensions || {};
-                    checkoutData.extensions['box-now-delivery'] = checkoutData.extensions['box-now-delivery'] || {};
-                    checkoutData.extensions['box-now-delivery']['_boxnow_locker_id'] = lockerId;
-                }
-                return checkoutData;
-            }
-        });
-
-        setTimeout(() => {
-            refreshBoxNowCheckoutUI();
-        }, 800);
-    });
+    // One bounded follow-up covers checkout markup that renders after DOMContentLoaded.
+    setTimeout(() => {
+        refreshBoxNowCheckoutUI();
+    }, 800);
 
     patchCheckoutFetchForLockerId();
+
 });
 
 document.addEventListener('wc-blocks-checkout-render', () => {
@@ -168,21 +185,163 @@ function getSelectedBoxNowLockerIDFromLocalStorage() {
     return lockerId;
 }
 
-function refreshBoxNowCheckoutUI() {
+const expressCheckoutContainerSelector = [
+    '.wc-block-components-express-payment',
+    '.wc-block-components-express-payment__event-buttons',
+    '.wc-block-checkout__express-payment',
+    '.wp-block-woocommerce-checkout-express-payment-block',
+    '#wc-stripe-express-checkout-element',
+    '.wc-stripe-express-checkout-element',
+    '#wc-stripe-payment-request-wrapper',
+    '.wc-stripe-payment-request-wrapper',
+    '.wc-stripe-payment-request-button',
+    '.wc-stripe-express-checkout-button',
+    '.woocommerce-paypal-payments-ppcp-button',
+    '.wc-ppcp-checkout-container',
+    '.wc-ppcp-paypal-buttons',
+    '.ppc-button-wrapper',
+    '#ppc-button',
+    '.paypal-button-container',
+    '.paypal-buttons'
+].join(',');
+
+function getExpressCheckoutContainers() {
+    return Array.from(document.querySelectorAll(expressCheckoutContainerSelector))
+        .filter(container => !container.parentElement?.closest(expressCheckoutContainerSelector));
+}
+
+function toggleExpressCheckoutForBoxNow(isBoxNowSelected, isLockerSelected) {
+    return;
+}
+
+let expressCheckoutToggleScheduled = false;
+
+function scheduleExpressCheckoutToggle() {
+    if (expressCheckoutToggleScheduled) {
+        return;
+    }
+
+    expressCheckoutToggleScheduled = true;
     requestAnimationFrame(() => {
+        expressCheckoutToggleScheduled = false;
+        const isBoxNowSelected = isBoxNowDeliverySelected();
+        const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
+        toggleExpressCheckoutForBoxNow(isBoxNowSelected, !!lockerId);
+    });
+}
+
+function refreshBoxNowCheckoutUI() {
+    if (checkoutUIRefreshScheduled) {
+        return;
+    }
+
+    checkoutUIRefreshScheduled = true;
+    requestAnimationFrame(() => {
+        checkoutUIRefreshScheduled = false;
         addBoxNowButton();
+
+        if (boxNowDeliverySettings.displayMode === 'embedded' && isBoxNowDeliverySelected()) {
+            refreshEmbeddedMapBlocks();
+        }
 
         const selectedRates = getSelectedShippingRates();
         const isBoxNowSelected = isBoxNowDeliverySelected(selectedRates);
         const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
 
         toggleBoxNowPickLockerUI(isBoxNowSelected && !!lockerId);
+        toggleExpressCheckoutForBoxNow(isBoxNowSelected, !!lockerId);
         scheduleCodTitleUpdate(isBoxNowSelected);
 
         if (isBoxNowSelected) {
             showSelectedLockerDetailsFromLocalStorage();
         }
+
+        ensureShippingRatesObserver();
     });
+}
+
+function scheduleCheckoutUIRetry(delay = 500) {
+    if (checkoutUIRetryTimer) {
+        clearTimeout(checkoutUIRetryTimer);
+    }
+
+    checkoutUIRetryTimer = setTimeout(() => {
+        checkoutUIRetryTimer = null;
+        refreshBoxNowCheckoutUI();
+    }, delay);
+}
+
+function getCheckoutIsCalculating() {
+    try {
+        const checkoutStore = window.wc?.wcBlocksData?.checkoutStore || 'wc/store/checkout';
+        const checkout = select(checkoutStore);
+        return checkout && typeof checkout.isCalculating === 'function'
+            ? checkout.isCalculating()
+            : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function getShippingRatesObserverRoot() {
+    return (
+        document.querySelector('.wp-block-woocommerce-checkout-shipping-method-block') ||
+        document.querySelector('.wp-block-woocommerce-checkout-shipping-methods-block') ||
+        document.querySelector('.wc-block-components-shipping-rates-control') ||
+        document.querySelector('.wc-block-components-shipping-methods') ||
+        null
+    );
+}
+
+function isBoxNowShippingUIRequired(root) {
+    if (!root) return false;
+
+    const boxNowMethod = root.querySelector(
+        'input[value*="box_now_delivery"], [data-shipping-method-id*="box_now_delivery"] input, [data-rate-id*="box_now_delivery"], [data-shipping-method-rate-id*="box_now_delivery"]'
+    );
+
+    if (!boxNowMethod) return false;
+
+    const optionContainer =
+        boxNowMethod.closest('.wc-block-components-radio-control__option') ||
+        boxNowMethod.closest('[data-rate-id]') ||
+        boxNowMethod.closest('li') ||
+        boxNowMethod.closest('label') ||
+        boxNowMethod.parentElement;
+
+    if (!optionContainer) return false;
+
+    const expectedSelector = boxNowDeliverySettings.displayMode === 'embedded'
+        ? '#box_now_delivery_embedded_map_blocks'
+        : '#box_now_delivery_button_blocks';
+
+    return !optionContainer.querySelector(expectedSelector);
+}
+
+function ensureShippingRatesObserver() {
+    if (typeof MutationObserver === 'undefined') return;
+
+    const root = getShippingRatesObserverRoot();
+    if (root === observedShippingRatesRoot && shippingRatesObserver) {
+        return;
+    }
+
+    if (shippingRatesObserver) {
+        shippingRatesObserver.disconnect();
+        shippingRatesObserver = null;
+    }
+
+    observedShippingRatesRoot = root;
+    if (!root) return;
+
+    // Watch only the shipping method area so React replacements can be repaired
+    // without observing every DOM change made during checkout.
+    shippingRatesObserver = new MutationObserver(() => {
+        if (isBoxNowShippingUIRequired(root)) {
+            refreshBoxNowCheckoutUI();
+        }
+    });
+    shippingRatesObserver.observe(root, { childList: true, subtree: true });
 }
 
 function isBoxNowDeliverySelected(selectedRates) {
@@ -378,63 +537,64 @@ function updateCodDescriptionForBlocks(isBoxNow) {
 
     return hasCodOption && (updated || (!isBoxNow || !codDescription));
 }
-// Wait for Blocks registry
-function waitForWooCommerceBlocksRegistry(callback) {
-    if (window.wc && window.wc.blocksCheckout) callback();
-    else setTimeout(() => waitForWooCommerceBlocksRegistry(callback), 100);
-}
-
-// Patch fetch to include locker ID
+// Add the locker ID only to the final Store API place-order request.
 function patchCheckoutFetchForLockerId() {
     if (window._bndpFetchPatched) return;
     window._bndpFetchPatched = true;
     const originalFetch = window.fetch;
 
     window.fetch = async function(input, init) {
+        let nextInput = input;
+        let nextInit = init;
+
         try {
             const url = (typeof input === 'string') ? input : (input?.url || '');
-            if (!url || !url.includes('/store/v1/checkout')) return originalFetch.apply(this, arguments);
+            const isCheckoutRequest = url && url.includes('/store/v1/checkout');
+            const isTotalsRequest = url && url.includes('__experimental_calc_totals');
 
-            let opts = (typeof input === 'string') ? (init || {}) : { ...input };
-            if ((opts.method || 'POST').toUpperCase() === 'POST' && opts.body && opts.headers) {
-                const contentType = opts.headers['Content-Type'] || opts.headers['content-type'] || '';
-                if (typeof opts.body === 'string' && contentType.includes('application/json')) {
-                    try {
-                        const bodyObj = JSON.parse(opts.body);
-                        const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
-                        if (lockerId) {
-                            // Top-level for PHP
-                            bodyObj._boxnow_locker_id = lockerId;
+            if (!isCheckoutRequest || isTotalsRequest) {
+                return originalFetch.apply(this, arguments);
+            }
 
-                            // Legacy extensions
-                            bodyObj.extensions = bodyObj.extensions || {};
-                            bodyObj.extensions['box-now-delivery'] = bodyObj.extensions['box-now-delivery'] || {};
-                            bodyObj.extensions['box-now-delivery']['_boxnow_locker_id'] = lockerId;
-                        }
-                        opts.body = JSON.stringify(bodyObj);
-                        if (typeof input !== 'string') input = new Request(url, opts);
-                        else init = opts;
-                    } catch (e) { console.warn("patchCheckoutFetchForLockerId parse error", e); }
+            const request = (typeof Request !== 'undefined' && input instanceof Request) ? input : null;
+            const opts = { ...(init || {}) };
+            const method = (opts.method || request?.method || 'GET').toUpperCase();
+            const headers = new Headers(opts.headers || request?.headers || {});
+            const contentType = headers.get('Content-Type') || '';
+
+            if (
+                method === 'POST' &&
+                isBoxNowDeliverySelected() &&
+                typeof opts.body === 'string' &&
+                contentType.includes('application/json')
+            ) {
+                const bodyObj = JSON.parse(opts.body);
+                const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
+
+                if (lockerId) {
+                    bodyObj.extensions = bodyObj.extensions || {};
+                    bodyObj.extensions['box-now-delivery'] = bodyObj.extensions['box-now-delivery'] || {};
+                    bodyObj.extensions['box-now-delivery']['_boxnow_locker_id'] = lockerId;
+
+                    opts.body = JSON.stringify(bodyObj);
+
+                    if (typeof input === 'string') {
+                        nextInit = opts;
+                    } else {
+                        nextInput = new Request(input, {
+                            ...opts,
+                            headers
+                        });
+                        nextInit = undefined;
+                    }
                 }
             }
-        } catch (e) { console.warn("patchCheckoutFetchForLockerId error", e); }
-
-        return originalFetch.apply(this, arguments);
-    };
-
-    // Place order click guard
-    document.addEventListener('click', (e) => {
-        const btn = e.target.closest('button.wc-block-components-checkout-place-order-button, button.wp-element-button, button.button');
-        if (!btn) return;
-        const selected = document.querySelector('.wc-block-components-radio-control__option input[type="radio"]:checked');
-        const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
-        if (selected?.value.includes('box_now_delivery') && !lockerId) {
-            e.preventDefault();
-            e.stopPropagation();
-            alert(boxNowDeliverySettings.lockerNotSelectedMessage || 'Please select a locker first!');
-            return false;
+        } catch (e) {
+            console.warn('patchCheckoutFetchForLockerId error', e);
         }
-    }, true);
+
+        return originalFetch.call(this, nextInput, nextInit);
+    };
 }
 
 /**
@@ -442,6 +602,7 @@ function patchCheckoutFetchForLockerId() {
  */
 function addBoxNowButton() {
     const useEmbedded = boxNowDeliverySettings.displayMode === 'embedded';
+    const shouldLoadEmbeddedWidget = useEmbedded && isBoxNowDeliverySelected();
     // Find possible shipping method containers used by various Woo Blocks versions
     const shippingMethodContainers = document.querySelectorAll(
         '.wc-block-components-shipping-rates-control__package, .wc-block-components-shipping-rates-control, .wc-block-components-shipping-methods, .wc-block-components-shipping-methods-list'
@@ -495,9 +656,11 @@ function addBoxNowButton() {
             embeddedMap.style.height = '55vh';
             embeddedMap.style.overflow = 'auto';
 
-            const iframe = createEmbeddedIframeBlocks();
-            embeddedIframe = iframe;
-            embeddedMap.appendChild(iframe);
+            if (shouldLoadEmbeddedWidget) {
+                const iframe = createEmbeddedIframeBlocks();
+                embeddedIframe = iframe;
+                embeddedMap.appendChild(iframe);
+            }
             embeddedMap.appendChild(detailsDiv);
 
             optionContainer.appendChild(embeddedMap);
@@ -625,6 +788,8 @@ function openBoxNowWidget() {
         src = 'https://widget-v5.boxnow.bg/popup.html';
     } else if (country === 'HR') {
         src = 'https://widget-v5.boxnow.hr/popup.html';
+    } else if (country === "SI") {
+        src = "https://widget-v5.boxnow.si/popup.html";
     } else {
         src = 'https://widget-v5.boxnow.gr/popup.html';
     }
@@ -651,7 +816,7 @@ function openBoxNowWidget() {
 
     const iframe = document.createElement('iframe');
     iframe.src = src;
-    iframe.allow = "geolocation",
+    iframe.allow = "geolocation https://*.boxnow.gr https://*.boxnow.cy https://*.boxnow.bg https://*.boxnow.si https://*.boxnow.hr";
     iframe.id = 'box_now_delivery_iframe_blocks';
     iframe.style.position = 'fixed';
     iframe.style.top = '50%';
@@ -729,7 +894,10 @@ function handleBoxNowCloseIframeMessage(event) {
     }
 
     if (typeof data === 'object') {
-        updateLockerDetails(data);
+        updateLockerDetails(data, {
+            persistToSession: true,
+            closePopup: true,
+        });
     }
 }
 
@@ -764,13 +932,16 @@ function showSelectedLockerDetailsFromLocalStorage() {
     }
     try {
         const lockerData = JSON.parse(lockerDataStr);
-        updateLockerDetails(lockerData);
+        updateLockerDetails(lockerData, {
+            persistToSession: false,
+            closePopup: false,
+        });
     } catch (e) {
         console.warn("showSelectedLockerDetailsFromLocalStorage: ", e);
     }
 }
 
-function updateLockerDetails(lockerData) {
+function updateLockerDetails(lockerData, options = {}) {
     if (
         typeof lockerData.boxnowLockerId === 'undefined' ||
         typeof lockerData.boxnowLockerAddressLine1 === 'undefined' ||
@@ -781,16 +952,42 @@ function updateLockerDetails(lockerData) {
         return;
     }
 
-    localStorage.setItem('box_now_selected_locker', JSON.stringify(lockerData));
+    if (options.persistToSession) {
+        localStorage.setItem('box_now_selected_locker', JSON.stringify(lockerData));
+    }
 
     // Persist to Woo session via AJAX as a fallback path for Blocks
     try {
-        if (boxNowDeliverySettings && boxNowDeliverySettings.ajaxUrl && lockerData.boxnowLockerId) {
+        if (
+            options.persistToSession &&
+            boxNowDeliverySettings &&
+            boxNowDeliverySettings.ajaxUrl &&
+            lockerData.boxnowLockerId &&
+            lockerData.boxnowLockerId !== lastPersistedLockerId
+        ) {
+            const lockerId = lockerData.boxnowLockerId;
+            lastPersistedLockerId = lockerId;
             fetch(boxNowDeliverySettings.ajaxUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: `action=bndp_set_boxnow_locker&locker_id=${encodeURIComponent(lockerData.boxnowLockerId)}&nonce=${encodeURIComponent(boxNowDeliverySettings.nonce || '')}`
-            }).catch(() => {});
+                body: `action=bndp_set_boxnow_locker&locker_id=${encodeURIComponent(lockerId)}&nonce=${encodeURIComponent(boxNowDeliverySettings.nonce || '')}`
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Unable to save locker to session');
+                }
+                return response.json();
+            })
+            .then(result => {
+                if ((!result || result.success !== true) && lastPersistedLockerId === lockerId) {
+                    lastPersistedLockerId = null;
+                }
+            })
+            .catch(() => {
+                if (lastPersistedLockerId === lockerId) {
+                    lastPersistedLockerId = null;
+                }
+            });
         }
     } catch (e) {
         console.warn("updateLockerDetails error: ", e);
@@ -803,24 +1000,25 @@ function updateLockerDetails(lockerData) {
 
         const language = document.documentElement.lang || 'el';
         const englishContent = `
-<div style="font-family: Verdana , Arial, sans-serif;font-weight:300;margin-top: -7px;">
-  <p style="margin: 1px 0px; color: #61bb46;font-weight: 400;height: 25px;"><b>Selected Locker</b></p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${lockerData.boxnowLockerName}</p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${lockerData.boxnowLockerAddressLine1}</p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${lockerData.boxnowLockerPostalCode}</p>
+<div class="locker-info">
+  <p class="locker-title"><b>Selected Locker</b></p>
+  <p class="locker-detail">${lockerData.boxnowLockerName}</p>
+  <p class="locker-detail">${lockerData.boxnowLockerAddressLine1}</p>
+  <p class="locker-detail">${lockerData.boxnowLockerPostalCode}</p>
 </div>`;
         const greekContent = `
-<div style="font-family: Verdana , Arial, sans-serif;font-weight:300;margin-top: -7px;">
-  <p style="margin: 1px 0px; color: #61bb46;font-weight: 400;height: 25px;"><b>Επιλεγμένο Locker</b></p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${lockerData.boxnowLockerName}</p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${lockerData.boxnowLockerAddressLine1}</p>
-  <p style="margin: 1px 0px; font-size: 13px;line-height:20px;height: 20px;">${lockerData.boxnowLockerPostalCode}</p>
+<div class="locker-info">
+  <p class="locker-title"><b>Επιλεγμένο Locker</b></p>
+  <p class="locker-detail">${lockerData.boxnowLockerName}</p>
+  <p class="locker-detail">${lockerData.boxnowLockerAddressLine1}</p>
+  <p class="locker-detail">${lockerData.boxnowLockerPostalCode}</p>
 </div>`;
         const content = language === 'el' ? greekContent : englishContent;
         detailsDiv.innerHTML = content;
     });
     toggleBoxNowPickLockerUI(true);
-    if (boxNowDeliverySettings.displayMode === "popup") {
+    toggleExpressCheckoutForBoxNow(isBoxNowDeliverySelected(), true);
+    if (options.closePopup && boxNowDeliverySettings.displayMode === "popup") {
         closeBoxNowPopup();
     }
 }
@@ -845,12 +1043,13 @@ function removeLockerFromSession() {
             fetch(boxNowDeliverySettings.ajaxUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: `action=bndp_clear_boxnow_locker`
+                body: `action=bndp_clear_boxnow_locker&nonce=${encodeURIComponent(boxNowDeliverySettings.nonce || '')}`
             })
             .then(response => response.json())
             .then(result => {
                 if (result.success) {
                     // Remove selected locker from local storage as well if present
+                    lastPersistedLockerId = null;
                     localStorage.removeItem("box_now_selected_locker");
                     updateSelectedLockerUI();
                 } else {
@@ -870,6 +1069,11 @@ function updateSelectedLockerUI() {
         box.innerHTML = "";
     }
     toggleBoxNowPickLockerUI(false);
+    toggleExpressCheckoutForBoxNow(isBoxNowDeliverySelected(), false);
+}
+
+function isUserInitiatedChange(event) {
+    return !!event && event.isTrusted !== false;
 }
 
 function toggleBoxNowPickLockerUI(isLockerSelected) {
@@ -914,14 +1118,14 @@ function toggleBoxNowPickLockerUI(isLockerSelected) {
             detailsDiv.style.display = isSelected && isLockerSelected ? 'block' : 'none';
         }
 
-        if (!isSelected && embeddedMap) {
-            embeddedMap.remove();
-        }
     });
 }
 
 function refreshEmbeddedMapBlocks() {
-    if (boxNowDeliverySettings.displayMode !== 'embedded') {
+    if (
+        boxNowDeliverySettings.displayMode !== 'embedded' ||
+        !isBoxNowDeliverySelected()
+    ) {
         return;
     }
 
@@ -931,20 +1135,25 @@ function refreshEmbeddedMapBlocks() {
         return;
     }
 
+    const widgetUrl = getEmbeddedWidgetUrlBlocks();
     embeddedMaps.forEach(map => {
         const existingIframe = map.querySelector('iframe');
-        const newIframe = createEmbeddedIframeBlocks();
+        const currentWidgetUrl = existingIframe?.dataset.boxNowSrc || existingIframe?.getAttribute('src');
+
+        if (existingIframe && currentWidgetUrl === widgetUrl) {
+            embeddedIframe = existingIframe;
+            return;
+        }
+
+        const newIframe = createEmbeddedIframeBlocks(widgetUrl);
         embeddedIframe = newIframe;
 
-        if (existingIframe) {
-            existingIframe.replaceWith(newIframe);
-        } else {
-            map.insertBefore(newIframe, map.firstChild);
-        }
+        if (existingIframe) existingIframe.replaceWith(newIframe);
+        else map.insertBefore(newIframe, map.firstChild);
     });
 }
 
-function createEmbeddedIframeBlocks() {
+function getEmbeddedWidgetUrlBlocks() {
     const gpsOption = boxNowDeliverySettings.gps_option;
     const partnerId = boxNowDeliverySettings.partnerId;
     const postalCodeEl = document.querySelector('input[name="shipping_postcode"]');
@@ -957,6 +1166,8 @@ function createEmbeddedIframeBlocks() {
         src = 'https://widget-v5.boxnow.bg';
     } else if (country === 'HR') {
         src = 'https://widget-v5.boxnow.hr';
+    } else if (country === "SI") {
+        src = "https://widget-v5.boxnow.si";
     } else {
         src = 'https://widget-v5.boxnow.gr';
     }
@@ -969,8 +1180,13 @@ function createEmbeddedIframeBlocks() {
         src += 'gps=yes';
     }
 
+    return src;
+}
+
+function createEmbeddedIframeBlocks(src = getEmbeddedWidgetUrlBlocks()) {
     const iframe = document.createElement('iframe');
     iframe.src = src;
+    iframe.dataset.boxNowSrc = src;
     iframe.style.width = '100%';
     iframe.style.height = '80%';
     iframe.style.border = '0';
@@ -995,9 +1211,15 @@ function initBoxNowBlocksIntegration() {
             const lockerId = getSelectedBoxNowLockerIDFromLocalStorage();
 
             toggleBoxNowPickLockerUI(isBoxNowSelected && !!lockerId);
+            toggleExpressCheckoutForBoxNow(isBoxNowSelected, !!lockerId);
+            refreshBoxNowCheckoutUI();
+            scheduleCheckoutUIRetry();
 
             // Clear locker if country changes
-            if (target.id === 'shipping-country' || target.id === 'shipping_country') {
+            if (
+                (target.id === 'shipping-country' || target.id === 'shipping_country') &&
+                isUserInitiatedChange(event)
+            ) {
                 removeLockerFromSession();
             }
         }

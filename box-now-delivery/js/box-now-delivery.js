@@ -2,6 +2,8 @@
     let lockerSelected = false;
     let iframeObserver = null;
     let popupIframe = null;
+    let checkoutUIRefreshScheduled = false;
+    let lastPersistedLockerId = null;
 
     const boxNowTrustedOriginRegex = /^https:\/\/.*\.boxnow\..*$/;
 
@@ -39,8 +41,10 @@
         }
 
         // Handle locker data selection
-        updateLockerDetailsContainer(data);
-        showSelectedLockerDetailsFromLocalStorage();
+        updateLockerDetailsContainer(data, {
+            persistToSession: true,
+            closePopup: true,
+        });
         lockerSelected = true;
     }
 
@@ -60,15 +64,40 @@
     /**
      * Add the BOX NOW Delivery button or embedded map.
      */
+    function getBoxNowShippingMethodAnchor() {
+        var input = $('input[name^="shipping_method"][value*="box_now_delivery"]').first();
+
+        if (!input.length) {
+            return $();
+        }
+
+        var inputId = input.attr("id");
+        var option = input.closest("li, .woocommerce-shipping-methods__item, .shipping_method");
+        var label = option.find("label").filter(function () {
+            return !inputId || this.htmlFor === inputId;
+        }).first();
+
+        if (!label.length && inputId) {
+            label = $("label").filter(function () {
+                return this.htmlFor === inputId;
+            }).first();
+        }
+
+        return label.length ? label : input;
+    }
+
     function addButton() {
         var useEmbedded = boxNowDeliverySettings.displayMode === "embedded" && boxNowDeliverySettings.page === "checkout";
+        var shippingMethodAnchor = getBoxNowShippingMethodAnchor();
+
         if (
             $("#box_now_delivery_button").length === 0 &&
-            !useEmbedded
+            !useEmbedded &&
+            shippingMethodAnchor.length
         ) {
             var buttonText = boxNowDeliverySettings.buttonText || "Pick a locker";
 
-            $('label[for="shipping_method_0_box_now_delivery"]').after(
+            shippingMethodAnchor.after(
                 '<button type="button" id="box_now_delivery_button" style="display:none;">' +
                 buttonText +
                 "</button>"
@@ -86,12 +115,15 @@
                 iframeObserver = null;
             }
 
-            if ($("#box_now_delivery_embedded_map").length === 0) {
-                $('label[for="shipping_method_0_box_now_delivery"]').after(
+            if ($("#box_now_delivery_embedded_map").length === 0 && shippingMethodAnchor.length) {
+                shippingMethodAnchor.after(
                     '<div id="box_now_delivery_embedded_map" style="display:none;"></div>'
                 );
             }
-            embedMap();
+
+            if ($("#box_now_delivery_embedded_map").length) {
+                embedMap();
+            }
         }
         applyButtonStyles();
     }
@@ -111,6 +143,7 @@
       </style>
     `;
 
+        $("#box-now-delivery-button-styles").remove();
         $("head").append(styleBlock);
     }
 
@@ -156,10 +189,26 @@
      * Embed the map to the page.
      */
     function embedMap() {
-        var iframe = $("#box_now_delivery_embedded_map iframe");
+        var embeddedMap = $("#box_now_delivery_embedded_map");
+        var isSelected = isBoxNowDeliverySelected();
+
+        $("#box_now_delivery_button").hide();
+        if (!embeddedMap.length || !isSelected) {
+            embeddedMap.hide();
+            return;
+        }
+
+        var iframe = embeddedMap.find("iframe");
+        var widgetUrl = getEmbeddedWidgetUrl();
+        var currentWidgetUrl = iframe.attr("data-box-now-src") || iframe.attr("src");
+
+        if (iframe.length && currentWidgetUrl !== widgetUrl) {
+            iframe.remove();
+            iframe = $();
+        }
 
         if (iframe.length === 0) {
-            iframe = createEmbeddedIframe();
+            iframe = createEmbeddedIframe(widgetUrl);
 
             var lockerDetailsContainer = $("<div>", {
                 id: "box_now_selected_locker_details",
@@ -174,27 +223,22 @@
                 id: "locker_info_container",
             });
 
-            $("#box_now_delivery_embedded_map")
+            embeddedMap
                 .css({
                     position: "relative",
                     width: "100%",
                     height: "80vh", // Set the height to 100%
                     overflow: "auto"
                 })
-                .append(iframe)
-                .append(lockerInfoContainer.append(lockerDetailsContainer));
+                .prepend(iframe);
 
-           
+            if (embeddedMap.find("#locker_info_container").length === 0) {
+                embeddedMap.append(lockerInfoContainer.append(lockerDetailsContainer));
+            }
         }
 
-        $("#box_now_delivery_button").hide();
-        var selected = $('input[name^="shipping_method"]:checked, input[name^="shipping_method"][type="hidden"]');
-
-        if (selected.length && selected.val().includes('box_now_delivery')) {
-            $("#box_now_delivery_embedded_map").show();
-        } else {
-            $("#box_now_delivery_embedded_map").hide();
-        }
+        embeddedMap.show();
+        showSelectedLockerDetailsFromLocalStorage();
     }
 
     // Overlay for the popup iframe
@@ -240,6 +284,8 @@
             src = "https://widget-v5.boxnow.bg/popup.html";
         } else if (country === "HR") {
             src = "https://widget-v5.boxnow.hr/popup.html";
+        } else if (country === "SI") {
+            src = "https://widget-v5.boxnow.si/popup.html";
         } else {
             src = "https://widget-v5.boxnow.gr/popup.html";
         }
@@ -262,7 +308,7 @@
         let iframe = $("<iframe>", {
             id: "box_now_delivery_iframe_popup",
             src: src,
-            allow: "geolocation",
+            allow: "geolocation https://*.boxnow.gr https://*.boxnow.cy https://*.boxnow.bg https://*.boxnow.si https://*.boxnow.hr",
             css: {
                 position: "fixed",
                 top: "50%",
@@ -312,7 +358,7 @@
     /**
      * Create an iframe for the embedded map.
      */
-    function createEmbeddedIframe() {
+    function getEmbeddedWidgetUrl() {
         let src;
         let gpsOption = boxNowDeliverySettings.gps_option;
         let partnerId = boxNowDeliverySettings.partnerId;
@@ -325,6 +371,8 @@
             src = "https://widget-v5.boxnow.bg";
         } else if (country === "HR") {
             src = "https://widget-v5.boxnow.hr";
+        } else if (country === "SI") {
+            src = "https://widget-v5.boxnow.si";
         } else {
             src = "https://widget-v5.boxnow.gr";
         }
@@ -341,8 +389,13 @@
             src += "gps=yes";
         }
 
+        return src;
+    }
+
+    function createEmbeddedIframe(src) {
         return $("<iframe>", {
             src: src,
+            "data-box-now-src": src,
             css: {
                 width: "100%",
                 height: "70%",
@@ -352,10 +405,11 @@
     }
 
     function sendLockerToServer(lockerId) {
-        if (!lockerId) {
+        if (!lockerId || lockerId === lastPersistedLockerId) {
             return;
         }
 
+        lastPersistedLockerId = lockerId;
         $.ajax({
             url: boxNowDeliverySettings.ajaxUrl,
             type: 'POST',
@@ -365,8 +419,14 @@
                 nonce: boxNowDeliverySettings.nonce
             },
             success: function(response) {
+                if ((!response || response.success !== true) && lastPersistedLockerId === lockerId) {
+                    lastPersistedLockerId = null;
+                }
             },
             error: function(xhr, status, error) {
+                if (lastPersistedLockerId === lockerId) {
+                    lastPersistedLockerId = null;
+                }
             }
         });
     }
@@ -375,8 +435,11 @@
      * Update the locker details container with selected locker data.
      *
      * @param {object} lockerData Locker data object.
+     * @param {object} options Rendering and persistence options.
      */
-    function updateLockerDetailsContainer(lockerData) {
+    function updateLockerDetailsContainer(lockerData, options) {
+        options = options || {};
+
         // Check if locker data is not undefined
         if (
             lockerData.boxnowLockerId === undefined ||
@@ -394,7 +457,9 @@
         var locker_name = lockerData.boxnowLockerName;
         // Add more fields as needed
 
-        localStorage.setItem("box_now_selected_locker", JSON.stringify(lockerData));
+        if (options.persistToSession) {
+            localStorage.setItem("box_now_selected_locker", JSON.stringify(lockerData));
+        }
 
         // Ensure the locker details container is added after the BOX NOW Delivery button
         if ($("#box_now_selected_locker_details").length === 0) {
@@ -460,9 +525,12 @@
             $("#box_now_selected_locker_input").val(JSON.stringify(lockerData));
         }
 
-        sendLockerToServer(locker_id);
+        if (options.persistToSession) {
+            sendLockerToServer(locker_id);
+        }
+        toggleExpressCheckoutForBoxNow();
 
-        if (boxNowDeliverySettings.displayMode === "popup") {
+        if (options.closePopup && boxNowDeliverySettings.displayMode === "popup") {
             closeBoxNowPopup()
         }
     }
@@ -473,8 +541,17 @@
     function showSelectedLockerDetailsFromLocalStorage() {
         var lockerData = localStorage.getItem("box_now_selected_locker");
 
-        if (lockerData) {
-            updateLockerDetailsContainer(JSON.parse(lockerData));
+        if (!lockerData) {
+            return;
+        }
+
+        try {
+            updateLockerDetailsContainer(JSON.parse(lockerData), {
+                persistToSession: false,
+                closePopup: false,
+            });
+        } catch (e) {
+            localStorage.removeItem("box_now_selected_locker");
         }
     }
 
@@ -487,6 +564,138 @@
         } else if (boxNowDeliverySettings.displayMode === "embedded") {
             embedMap();
         }
+
+        toggleExpressCheckoutForBoxNow();
+    }
+
+    function isBoxNowDeliverySelected() {
+        if (boxNowDeliverySettings.page !== "checkout") {
+            return false;
+        }
+
+        var selectedRadio = $('input[type="radio"][name^="shipping_method"]:checked');
+        if (selectedRadio.length && selectedRadio.val() && selectedRadio.val().indexOf("box_now_delivery") !== -1) {
+            return true;
+        }
+
+        var selectedHidden = $('input[type="hidden"][name^="shipping_method"]');
+        for (var i = 0; i < selectedHidden.length; i++) {
+            var hiddenValue = selectedHidden.eq(i).val();
+            if (hiddenValue && hiddenValue.indexOf("box_now_delivery") !== -1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function getSelectedLockerId() {
+        var lockerField = $("#_boxnow_locker_id").val();
+        if (lockerField) {
+            return lockerField;
+        }
+
+        var lockerData = localStorage.getItem("box_now_selected_locker");
+        if (!lockerData) {
+            return "";
+        }
+
+        try {
+            var parsedLockerData = JSON.parse(lockerData);
+            return parsedLockerData && parsedLockerData.boxnowLockerId ? parsedLockerData.boxnowLockerId : "";
+        } catch (e) {
+            return "";
+        }
+    }
+
+    function registerStripeExpressCheckoutExtensionData() {
+        if (window._bndpStripeExpressExtensionRegistered) {
+            return;
+        }
+
+        if (!(window.wp && wp.hooks && typeof wp.hooks.addFilter === "function")) {
+            return;
+        }
+
+        wp.hooks.addFilter(
+            "wcstripe.express-checkout.cart-place-order-extension-data",
+            "box-now-delivery",
+            function (extensionData) {
+                var lockerId = getSelectedLockerId();
+
+                if (!lockerId || !isBoxNowDeliverySelected()) {
+                    return extensionData;
+                }
+
+                return Object.assign({}, extensionData, {
+                    "box-now-delivery": Object.assign(
+                        {},
+                        extensionData["box-now-delivery"] || {},
+                        { _boxnow_locker_id: lockerId }
+                    )
+                });
+            }
+        );
+
+        window._bndpStripeExpressExtensionRegistered = true;
+    }
+
+    var expressCheckoutContainerSelector = [
+        "#wc-stripe-express-checkout-element",
+        ".wc-stripe-express-checkout-element",
+        "#wc-stripe-payment-request-wrapper",
+        ".wc-stripe-payment-request-wrapper",
+        ".wc-stripe-payment-request-button",
+        ".wc-stripe-express-checkout-button",
+        ".woocommerce-paypal-payments-ppcp-button",
+        ".wc-ppcp-checkout-container",
+        ".wc-ppcp-paypal-buttons",
+        ".ppc-button-wrapper",
+        "#ppc-button",
+        ".paypal-button-container",
+        ".paypal-buttons",
+        ".wc-block-components-express-payment"
+    ].join(",");
+
+    function getExpressCheckoutContainers() {
+        return $(expressCheckoutContainerSelector).filter(function () {
+            return $(this).parents(expressCheckoutContainerSelector).length === 0;
+        });
+    }
+
+    function escapeHtml(value) {
+        return $("<div>").text(value).html();
+    }
+
+    function toggleExpressCheckoutForBoxNow() {
+        return;
+    }
+
+    var expressCheckoutToggleScheduled = false;
+
+    function scheduleExpressCheckoutToggle() {
+        if (expressCheckoutToggleScheduled) {
+            return;
+        }
+
+        expressCheckoutToggleScheduled = true;
+        window.requestAnimationFrame(function () {
+            expressCheckoutToggleScheduled = false;
+            toggleExpressCheckoutForBoxNow();
+        });
+    }
+
+    function isUserInitiatedChange(event) {
+        var originalEvent = event && event.originalEvent;
+        return !!originalEvent && originalEvent.isTrusted !== false;
+    }
+
+    function clearSelectedLocker() {
+        lastPersistedLockerId = null;
+        localStorage.removeItem("box_now_selected_locker");
+        $("#box_now_selected_locker_details").hide().empty();
+        removeLockerFromSession();
+        toggleExpressCheckoutForBoxNow();
     }
 
     /**
@@ -506,13 +715,13 @@
             // Radio-based selection
             var radio = $('input[type="radio"][name="shipping_method[0]"]:checked');
             if (radio.length) {
-                isSelected = radio.val() === 'box_now_delivery';
+                isSelected = String(radio.val() || "").indexOf("box_now_delivery") !== -1;
             }
             // Hidden input fallback (some themes/flows)
             if (!isSelected) {
                 var hiddenVal = $('input[type="hidden"][name="shipping_method[0]"]').val();
                 if (hiddenVal) {
-                    isSelected = hiddenVal === 'box_now_delivery';
+                    isSelected = String(hiddenVal).indexOf("box_now_delivery") !== -1;
                 }
             }
         }
@@ -531,9 +740,22 @@
         addButton();
         toggleBoxNowDelivery();
 
-        if ($("#shipping_method_0_box_now_delivery").is(":checked")) {
+        if (isBoxNowDeliverySelected()) {
             showSelectedLockerDetailsFromLocalStorage();
         }
+    }
+
+    function scheduleCheckoutUIRefresh() {
+        if (checkoutUIRefreshScheduled) {
+            return;
+        }
+
+        checkoutUIRefreshScheduled = true;
+        window.requestAnimationFrame(function () {
+            checkoutUIRefreshScheduled = false;
+            init();
+            toggleExpressCheckoutForBoxNow();
+        });
     }
 
     /**
@@ -549,6 +771,7 @@
                     nonce: boxNowDeliverySettings.nonce
                 },
                 success: function(response) {
+                    toggleExpressCheckoutForBoxNow();
                 },
                 error: function(xhr, status, error) {
                     console.warn("removeLockerFromSession response error: ", error);
@@ -562,20 +785,13 @@
 
     // Document ready event
     $(document).ready(function () {
+        registerStripeExpressCheckoutExtensionData();
         /**
          * Add validation for order placement to ensure locker selection.
          */
         function addOrderValidation() {
             $(document.body).on("click", "#place_order", function (event) {
-                var lockerData = localStorage.getItem("box_now_selected_locker");
-
-                if (
-                    !lockerData &&
-                    ($('input[type="radio"][name="shipping_method[0]"]:checked').val() ===
-                        "box_now_delivery" ||
-                        $('input[type="hidden"][name="shipping_method[0]"]').val() ===
-                        "box_now_delivery")
-                ) {
+                if (isBoxNowDeliverySelected() && !getSelectedLockerId()) {
                     event.preventDefault();
                     event.stopImmediatePropagation();
                     alert(
@@ -593,11 +809,12 @@
 
         // Show the selected locker details from localStorage
         showSelectedLockerDetailsFromLocalStorage();
+        toggleExpressCheckoutForBoxNow();
 
         // Call init() function when the shipping method list is updated
-        $(document.body).on("updated_checkout", function () {
-            init();
-        });
+        $(document.body)
+            .off("updated_checkout.boxNowDelivery")
+            .on("updated_checkout.boxNowDelivery", scheduleCheckoutUIRefresh);
 
         // Call the toggle function when the shipping method changes
         $(document.body).on(
@@ -609,29 +826,35 @@
         addOrderValidation();
         
         // When shipping country changes clear selected locker from local storage and session
-        $(document.body).on("change", "#shipping_country", function () {
-            localStorage.removeItem("box_now_selected_locker");
-            $("#box_now_selected_locker_details").hide().empty();
-            removeLockerFromSession();
+        $(document.body).on("change", "#shipping_country", function (event) {
+            if (!isUserInitiatedChange(event)) {
+                return;
+            }
+
+            clearSelectedLocker();
         });
 
         // When billing_country country changes and the user selected the option 
         // to ship to same address as billing, then procceed to clear selected 
         // locker from local storage and session
-        $(document.body).on("change", "#billing_country", function () {
+        $(document.body).on("change", "#billing_country", function (event) {
+            if (!isUserInitiatedChange(event)) {
+                return;
+            }
+
             if (!$('#ship-to-different-address-checkbox').is(":checked")) {
-                localStorage.removeItem("box_now_selected_locker");
-                $("#box_now_selected_locker_details").hide().empty();
-                removeLockerFromSession();
+                clearSelectedLocker();
             }
         });
 
         // When the user toggles the option to ship to different address,
         // procceed to clear selected locker from local storage and session
-        $(document.body).on("change", "#ship-to-different-address-checkbox", function () {
-            localStorage.removeItem("box_now_selected_locker");
-            $("#box_now_selected_locker_details").hide().empty();
-            removeLockerFromSession();
+        $(document.body).on("change", "#ship-to-different-address-checkbox", function (event) {
+            if (!isUserInitiatedChange(event)) {
+                return;
+            }
+
+            clearSelectedLocker();
         });
     });
 })(jQuery);

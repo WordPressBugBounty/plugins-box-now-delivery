@@ -32,7 +32,7 @@ document.addEventListener("DOMContentLoaded", function () {
         let size = sizes[i];
 
         // Check if button exists and enabled
-        if (!button || createVouchersEnabled.value !== "true") {
+	        if (!button || !createVouchersEnabled || createVouchersEnabled.value !== "true") {
             if (button) button.disabled = true;
             continue;
         }
@@ -109,32 +109,113 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    const boxNowParcelIdsEl = document.getElementById("box_now_parcel_ids");
-    if (boxNowParcelIdsEl) {
-        const parcelIds = JSON.parse(boxNowParcelIdsEl.value || "[]");
-        displayParcelIdLinks(parcelIds);
+	    const boxNowParcelIdsEl = document.getElementById("box_now_parcel_ids");
+	    if (boxNowParcelIdsEl) {
+	        const parcelIds = getStoredParcelIds();
+	        displayParcelIdLinks(parcelIds);
 
-        // Enable or disable the button based on whether there are vouchers created for the order
-        buttons.forEach((btn) => btn && (btn.disabled = parcelIds.length > 0));
-    }
-});
+	        // Enable or disable the button based on whether there are vouchers created for the order
+	        setCreateVoucherButtonsDisabled(parcelIds.length > 0);
+	    }
 
-function displayParcelIdLinks(parcelIds) {
-    const pdfLinkContainer = document.getElementById("box_now_voucher_link");
-    pdfLinkContainer.innerHTML = ""; // Clear the container
+	    const cancelAllVouchersButton = document.getElementById("box_now_cancel_all_vouchers");
+	    if (cancelAllVouchersButton) {
+	        cancelAllVouchersButton.addEventListener("click", handleCancelAllVouchersClick);
+	        updateCancelAllVouchersButton(getStoredParcelIds());
+	    }
+	});
 
-    parcelIds.forEach((parcelId) => {
-        const orderId = document.getElementById("box_now_order_id").value;
-        const trackingUrl = `https://t.boxnow.gr/?track=${encodeURIComponent(parcelId)}`;
+	function getCreateVoucherButtons() {
+	    return [
+	        document.getElementById("box_now_create_voucher_small"),
+	        document.getElementById("box_now_create_voucher_medium"),
+	        document.getElementById("box_now_create_voucher_large"),
+	    ];
+	}
 
-        const newLinkHtml = `
-      <button class="parcel-id-link box-now-link" data-parcel-id="${parcelId}" type="button" >&#128196; ${parcelId}</button>
-      <button class="cancel-voucher-btn" data-order-id="${orderId}" style="color: white; background-color: red; margin: 4px 0; border: none; border-radius: 4px; cursor: pointer; padding: 6px 12px; font-size: 13px;">&#9664; Cancel Voucher</button>
-      <a class="box-now-track-btn" href="${trackingUrl}" target="_blank" rel="noopener noreferrer" style="color: white; background-color: #f6a623; border-radius: 4px; margin: 4px 0; border: none; cursor: pointer; padding: 6px 12px; font-size: 13px; display: inline-block; text-decoration: none;">&#128230; Track Parcel</a>
-      <br>`;
+	function setCreateVoucherButtonsDisabled(disabled) {
+	    getCreateVoucherButtons().forEach((btn) => {
+	        if (btn) {
+	            btn.disabled = disabled;
+	        }
+	    });
+	}
+
+	function getStoredParcelIds() {
+	    const boxNowParcelIdsEl = document.getElementById("box_now_parcel_ids");
+	    if (!boxNowParcelIdsEl) {
+	        return [];
+	    }
+
+	    try {
+	        const parcelIds = JSON.parse(boxNowParcelIdsEl.value || "[]");
+	        return Array.isArray(parcelIds) ? parcelIds.filter(Boolean) : [];
+	    } catch (error) {
+	        console.warn("Invalid BOX NOW parcel ID list:", error);
+	        return [];
+	    }
+	}
+
+	function setStoredParcelIds(parcelIds) {
+	    const boxNowParcelIdsEl = document.getElementById("box_now_parcel_ids");
+	    if (boxNowParcelIdsEl) {
+	        boxNowParcelIdsEl.value = JSON.stringify(parcelIds || []);
+	    }
+	}
+
+	function updateCancelAllVouchersButton(parcelIds) {
+	    const cancelAllVouchersButton = document.getElementById("box_now_cancel_all_vouchers");
+	    if (!cancelAllVouchersButton) {
+	        return;
+	    }
+
+	    const hasParcelIds = Array.isArray(parcelIds) && parcelIds.length > 0;
+	    cancelAllVouchersButton.style.display = hasParcelIds ? "" : "none";
+	    cancelAllVouchersButton.disabled = !hasParcelIds;
+	}
+
+	function escapeHtml(value) {
+	    const div = document.createElement("div");
+	    div.textContent = value;
+	    return div.innerHTML;
+	}
+
+	function escapeAttribute(value) {
+	    return escapeHtml(value).replace(/"/g, "&quot;");
+	}
+
+	function displayParcelIdLinks(parcelIds) {
+	    const pdfLinkContainer = document.getElementById("box_now_voucher_link");
+	    parcelIds = Array.isArray(parcelIds) ? parcelIds.filter(Boolean) : [];
+	    updateCancelAllVouchersButton(parcelIds);
+
+	    if (!pdfLinkContainer) {
+	        return;
+	    }
+
+	    pdfLinkContainer.innerHTML = ""; // Clear the container
+
+	    parcelIds.forEach((parcelId) => {
+	        const orderId = document.getElementById("box_now_order_id").value;
+	        const trackingUrl = `https://t.boxnow.gr/?track=${encodeURIComponent(parcelId)}`;
+	        const escapedParcelId = escapeHtml(parcelId);
+	        const escapedParcelIdAttribute = escapeAttribute(parcelId);
+
+	        const newLinkHtml = `
+	      <div class="box-now-voucher-actions">
+	        <button class="button parcel-id-link box-now-link box-now-admin-action box-now-admin-action--voucher dashicons-before dashicons-printer" data-parcel-id="${escapedParcelIdAttribute}" type="button">Print ${escapedParcelId}</button>
+	        <button type="button" class="button cancel-voucher-btn box-now-admin-action box-now-admin-action--danger dashicons-before dashicons-no-alt" data-order-id="${orderId}">Cancel</button>
+	        <a class="button box-now-track-btn box-now-admin-action box-now-admin-action--track dashicons-before dashicons-location-alt" href="${trackingUrl}" target="_blank" rel="noopener noreferrer">Track</a>
+	      </div>`;
 
         pdfLinkContainer.innerHTML += newLinkHtml;
     });
+
+    if (pdfLinkContainer.dataset.boxNowVoucherHandlersBound === "true") {
+        return;
+    }
+
+    pdfLinkContainer.dataset.boxNowVoucherHandlersBound = "true";
 
     // Event delegation for parcelIdLinks and cancelButtons
     pdfLinkContainer.addEventListener("click", function (event) {
@@ -175,33 +256,81 @@ function handleCancelVoucherClick(event) {
         myAjax.ajaxurl,
         data,
         function (response) {
-            if (response.success) {
-                let canceledParcelId = response.data;
-                const boxNowParcelIdsEl = document.getElementById("box_now_parcel_ids");
-                if (boxNowParcelIdsEl) {
-                    const parcelIds = JSON.parse(boxNowParcelIdsEl.value || "[]");
-                    const index = parcelIds.indexOf(canceledParcelId);
-                    if (index !== -1) {
-                        parcelIds.splice(index, 1);
-                    }
-                    boxNowParcelIdsEl.value = JSON.stringify(parcelIds);
-
-                    // Enable the create voucher button if all vouchers have been canceled
-                    if (parcelIds.length === 0) {
-                        const createVouchersBtn = document.getElementById(
-                            "box_now_create_voucher"
-                        );
-                        if (createVouchersBtn) {
-                            createVouchersBtn.disabled = false;
-                        }
-                    }
-                }
-                location.reload();
-            } else {
-                console.error("Error canceling voucher:", response.data);
+	            if (response.success) {
+	                let canceledParcelId = response.data;
+	                const parcelIds = getStoredParcelIds();
+	                const index = parcelIds.indexOf(canceledParcelId);
+	                if (index !== -1) {
+	                    parcelIds.splice(index, 1);
+	                }
+	                setStoredParcelIds(parcelIds);
+	                updateCancelAllVouchersButton(parcelIds);
+	                setCreateVoucherButtonsDisabled(parcelIds.length > 0);
+	                location.reload();
+	            } else {
+	                console.error("Error canceling voucher:", response.data);
                 alert("Error canceling voucher: " + response.data);
             }
         },
-        "json"
-    );
-}
+	        "json"
+	    );
+	}
+
+	function handleCancelAllVouchersClick(event) {
+	    event.preventDefault();
+
+	    const button = event.currentTarget;
+	    const orderId = button.getAttribute("data-order-id");
+	    const parcelIds = getStoredParcelIds();
+
+	    if (!orderId || parcelIds.length === 0) {
+	        alert("No BOX NOW vouchers were found for this order.");
+	        return;
+	    }
+
+	    if (
+	        !window.confirm(
+	            `Cancel all ${parcelIds.length} BOX NOW voucher(s) for this order? This cannot be undone.`
+	        )
+	    ) {
+	        return;
+	    }
+
+	    button.disabled = true;
+
+	    const data = {
+	        action: "cancel_all_vouchers",
+	        order_id: orderId,
+	        nonce: myAjax.nonce,
+	    };
+
+	    jQuery.post(
+	        myAjax.ajaxurl,
+	        data,
+	        function (response) {
+	            if (response.success) {
+	                const responseData = response.data || {};
+	                const remainingParcelIds = responseData.remaining_parcel_ids || [];
+	                const failedCancellations = responseData.failed_cancellations || [];
+
+	                setStoredParcelIds(remainingParcelIds);
+	                displayParcelIdLinks(remainingParcelIds);
+	                setCreateVoucherButtonsDisabled(remainingParcelIds.length > 0);
+
+	                if (failedCancellations.length > 0) {
+	                    alert(
+	                        "Some BOX NOW vouchers could not be cancelled: " +
+	                        failedCancellations.join(", ")
+	                    );
+	                }
+
+	                location.reload();
+	            } else {
+	                console.error("Error canceling all vouchers:", response.data);
+	                alert("Error canceling all vouchers: " + response.data);
+	                button.disabled = false;
+	            }
+	        },
+	        "json"
+	    );
+	}
