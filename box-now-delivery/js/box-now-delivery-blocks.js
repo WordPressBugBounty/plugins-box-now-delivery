@@ -23,10 +23,27 @@ let codOriginalTitle = null;
 let codOriginalDescription = null;
 let checkoutUIRefreshScheduled = false;
 let checkoutUIRetryTimer = null;
+const boxNowBlocksGeolocationAllowlist = [
+    'https://widget-v5.boxnow.gr',
+    'https://widget-v5.boxnow.cy',
+    'https://widget-v5.boxnow.bg',
+    'https://widget-v5.boxnow.si',
+    'https://widget-v5.boxnow.hr',
+    'https://widget-v4.boxnow.gr',
+    'https://widget-v4.boxnow.cy',
+    'https://widget-v4.boxnow.bg',
+    'https://widget-v4.boxnow.si',
+    'https://widget-v4.boxnow.hr',
+    'https://map.boxnow.gr',
+    'https://map.boxnow.cy',
+    'https://map.boxnow.bg',
+    'https://map.boxnow.si',
+    'https://map.boxnow.hr',
+].join(' ');
 let lastCheckoutIsCalculating = null;
 let shippingRatesObserver = null;
 let observedShippingRatesRoot = null;
-let lastPersistedLockerId = null;
+let lastPersistedLockerData = null;
 const codTitle = (typeof boxNowDeliverySettings !== 'undefined' && boxNowDeliverySettings.codTitle)
     ? boxNowDeliverySettings.codTitle
     : 'BOX NOW PAY ON THE GO!';
@@ -118,7 +135,8 @@ function registerStripeExpressCheckoutExtensionData() {
                 ...extensionData,
                 'box-now-delivery': {
                     ...(extensionData['box-now-delivery'] || {}),
-                    _boxnow_locker_id: lockerId
+                    _boxnow_locker_id: lockerId,
+                    box_now_selected_locker: getSelectedBoxNowLockerDataFromLocalStorage() || {}
                 }
             };
         }
@@ -537,7 +555,7 @@ function updateCodDescriptionForBlocks(isBoxNow) {
 
     return hasCodOption && (updated || (!isBoxNow || !codDescription));
 }
-// Add the locker ID only to the final Store API place-order request.
+// Add the locker selection only to the final Store API place-order request.
 function patchCheckoutFetchForLockerId() {
     if (window._bndpFetchPatched) return;
     window._bndpFetchPatched = true;
@@ -575,6 +593,7 @@ function patchCheckoutFetchForLockerId() {
                     bodyObj.extensions = bodyObj.extensions || {};
                     bodyObj.extensions['box-now-delivery'] = bodyObj.extensions['box-now-delivery'] || {};
                     bodyObj.extensions['box-now-delivery']['_boxnow_locker_id'] = lockerId;
+                    bodyObj.extensions['box-now-delivery']['box_now_selected_locker'] = getSelectedBoxNowLockerDataFromLocalStorage() || {};
 
                     opts.body = JSON.stringify(bodyObj);
 
@@ -816,7 +835,7 @@ function openBoxNowWidget() {
 
     const iframe = document.createElement('iframe');
     iframe.src = src;
-    iframe.allow = "geolocation https://*.boxnow.gr https://*.boxnow.cy https://*.boxnow.bg https://*.boxnow.si https://*.boxnow.hr";
+    iframe.allow = 'geolocation ' + boxNowBlocksGeolocationAllowlist;
     iframe.id = 'box_now_delivery_iframe_blocks';
     iframe.style.position = 'fixed';
     iframe.style.top = '50%';
@@ -943,6 +962,7 @@ function showSelectedLockerDetailsFromLocalStorage() {
 
 function updateLockerDetails(lockerData, options = {}) {
     if (
+        !lockerData || typeof lockerData !== 'object' ||
         typeof lockerData.boxnowLockerId === 'undefined' ||
         typeof lockerData.boxnowLockerAddressLine1 === 'undefined' ||
         typeof lockerData.boxnowLockerPostalCode === 'undefined' ||
@@ -958,19 +978,20 @@ function updateLockerDetails(lockerData, options = {}) {
 
     // Persist to Woo session via AJAX as a fallback path for Blocks
     try {
+        const serializedLocker = JSON.stringify(lockerData);
         if (
             options.persistToSession &&
             boxNowDeliverySettings &&
             boxNowDeliverySettings.ajaxUrl &&
             lockerData.boxnowLockerId &&
-            lockerData.boxnowLockerId !== lastPersistedLockerId
+            serializedLocker !== lastPersistedLockerData
         ) {
             const lockerId = lockerData.boxnowLockerId;
-            lastPersistedLockerId = lockerId;
+            lastPersistedLockerData = serializedLocker;
             fetch(boxNowDeliverySettings.ajaxUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                body: `action=bndp_set_boxnow_locker&locker_id=${encodeURIComponent(lockerId)}&nonce=${encodeURIComponent(boxNowDeliverySettings.nonce || '')}`
+                body: `action=bndp_set_boxnow_locker&locker_id=${encodeURIComponent(lockerId)}&box_now_selected_locker=${encodeURIComponent(serializedLocker)}&nonce=${encodeURIComponent(boxNowDeliverySettings.nonce || '')}`
             })
             .then(response => {
                 if (!response.ok) {
@@ -979,13 +1000,13 @@ function updateLockerDetails(lockerData, options = {}) {
                 return response.json();
             })
             .then(result => {
-                if ((!result || result.success !== true) && lastPersistedLockerId === lockerId) {
-                    lastPersistedLockerId = null;
+                if ((!result || result.success !== true) && lastPersistedLockerData === serializedLocker) {
+                    lastPersistedLockerData = null;
                 }
             })
             .catch(() => {
-                if (lastPersistedLockerId === lockerId) {
-                    lastPersistedLockerId = null;
+                if (lastPersistedLockerData === serializedLocker) {
+                    lastPersistedLockerData = null;
                 }
             });
         }
@@ -1049,7 +1070,7 @@ function removeLockerFromSession() {
             .then(result => {
                 if (result.success) {
                     // Remove selected locker from local storage as well if present
-                    lastPersistedLockerId = null;
+                    lastPersistedLockerData = null;
                     localStorage.removeItem("box_now_selected_locker");
                     updateSelectedLockerUI();
                 } else {

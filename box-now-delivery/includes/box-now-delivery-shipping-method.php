@@ -252,8 +252,17 @@ function box_now_delivery_shipping_method_init()
              */
             public function calculate_shipping($package = [])
             {
+                $woocommerce = function_exists('WC') ? WC() : null;
+                $cart = is_object($woocommerce) && isset($woocommerce->cart)
+                    ? $woocommerce->cart
+                    : null;
+
+                if (!$cart) {
+                    return;
+                }
+
                 // Check if any item in the cart is oversized
-                if ($this->has_oversized_products()) {
+                if ($this->has_oversized_products($cart)) {
                     // Do not display the BOX NOW Delivery shipping method if an item is oversized
                     return;
                 }
@@ -262,15 +271,22 @@ function box_now_delivery_shipping_method_init()
                 $taxable = ($this->taxable == 'yes') ? true : false;
 
                 // Get the order total
-                $order_total = WC()->cart->get_displayed_subtotal();
+                $order_total = $cart->get_displayed_subtotal();
 
                 // Adjust total for any coupons
-                if (!empty(WC()->cart->get_coupons())) {
-                    foreach (WC()->cart->get_coupons() as $code => $coupon) {
+                if (!empty($cart->get_coupons())) {
+                    foreach ($cart->get_coupons() as $code => $coupon) {
                         if ($coupon->is_type('fixed_cart')) {
                             $order_total -= $coupon->get_amount();
                         } else if ($coupon->is_type('percent')) {
                             $order_total -= ($coupon->get_amount() / 100) * $order_total;
+                        } else if ($coupon->is_type('fixed_product')) {
+                            // Use WooCommerce's calculated discount so product eligibility,
+                            // quantities, usage limits, rounding, and taxes are respected.
+                            $order_total -= $cart->get_coupon_discount_amount(
+                                $code,
+                                !$cart->display_prices_including_tax()
+                            );
                         }
                     }
                 }
@@ -298,9 +314,10 @@ function box_now_delivery_shipping_method_init()
             /**
              * Checks if the cart contains any oversized products or if the total weight exceeds the custom weight limit.
              *
+             * @param WC_Cart $cart Current WooCommerce cart.
              * @return bool Returns true if the cart contains oversized products or if the total weight exceeds the custom weight limit, otherwise returns false.
              */
-            private function has_oversized_products()
+            private function has_oversized_products($cart)
             {
                 // Get WooCommerce units
                 $wc_weight_unit = get_option('woocommerce_weight_unit');    // kg, g, lbs, oz
@@ -312,7 +329,7 @@ function box_now_delivery_shipping_method_init()
                 $box_now_weight_limit = floatval($this->get_option('custom_weight'));
                 $box_now_weight_unit = $this->get_option('custom_weight_unit'); // kg, g
 
-                foreach (WC()->cart->get_cart_contents() as $cart_item) {
+                foreach ($cart->get_cart_contents() as $cart_item) {
                     $length = floatval($cart_item['data']->get_length());
                     $width  = floatval($cart_item['data']->get_width());
                     $height = floatval($cart_item['data']->get_height());
@@ -415,50 +432,70 @@ function box_now_delivery_shipping_method_init()
     }
 }
 
+/**
+ * Determine whether gateway copy is being requested by a checkout flow.
+ *
+ * Gateway descriptions can also be read from wp-admin and arbitrary REST API
+ * endpoints, where WooCommerce intentionally does not initialize a session.
+ *
+ * @return bool
+ */
+function boxnow_is_checkout_or_store_api_request()
+{
+    if (function_exists('is_checkout') && is_checkout()) {
+        return true;
+    }
+
+    $wc_ajax = isset($_REQUEST['wc-ajax']) && is_string($_REQUEST['wc-ajax'])
+        ? sanitize_key(wp_unslash($_REQUEST['wc-ajax']))
+        : '';
+
+    if (in_array($wc_ajax, array('update_order_review', 'checkout'), true)) {
+        return true;
+    }
+
+    if (function_exists('wp_doing_ajax') && wp_doing_ajax()) {
+        $action = isset($_REQUEST['action']) && is_string($_REQUEST['action'])
+            ? sanitize_key(wp_unslash($_REQUEST['action']))
+            : '';
+
+        if (in_array($action, array('woocommerce_update_order_review', 'woocommerce_checkout'), true)) {
+            return true;
+        }
+    }
+
+    if (!(defined('REST_REQUEST') && REST_REQUEST)) {
+        return false;
+    }
+
+    $route = isset($_REQUEST['rest_route']) && is_string($_REQUEST['rest_route'])
+        ? sanitize_text_field(wp_unslash($_REQUEST['rest_route']))
+        : '';
+
+    if ('' === $route && isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI'])) {
+        $route = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI']));
+    }
+
+    return false !== strpos($route, '/wc/store/');
+}
+
 // Modify the Cash on Delivery payment method's description based on the shipping zone
 add_filter('woocommerce_gateway_description', 'boxnow_change_cod_description', 10, 2);
 function boxnow_change_cod_description($description, $payment_id)
 {
-    if ('cod' !== $payment_id) {
+    if ('cod' !== $payment_id || !boxnow_is_checkout_or_store_api_request()) {
         return $description;
     }
 
-    // Get the chosen shipping methods from the current customer's session
-    $chosen_shipping_methods = WC()->session->get('chosen_shipping_methods');
-
-    // Only modify the description if the chosen shipping method is 'box_now_delivery'
-    if (is_array($chosen_shipping_methods) && in_array('box_now_delivery', $chosen_shipping_methods)) {
-        // Get the current customer's package
-        $package = array();
-        if (WC()->customer) {
-            $package = array(
-                'destination' => array(
-                    'country' => WC()->customer->get_shipping_country(),
-                    'state' => WC()->customer->get_shipping_state(),
-                    'postcode' => WC()->customer->get_shipping_postcode(),
-                ),
-            );
-        }
-
-        // Get the shipping zone matching the customer's package
-        $shipping_zone = WC_Shipping_Zones::get_zone_matching_package($package);
-
-        // Now you can access the shipping methods of the shipping zone
-        $shipping_methods = $shipping_zone->get_shipping_methods();
-
-        foreach ($shipping_methods as $instance_id => $shipping_method) {
-            if ('box_now_delivery' === $shipping_method->id) {
-                $enable_custom_cod_description = $shipping_method->get_option('enable_custom_cod_description');
-                $custom_cod_description = $shipping_method->get_option('custom_cod_description');
-
-                if ('yes' === $enable_custom_cod_description && !empty($custom_cod_description)) {
-                    return $custom_cod_description;
-                }
-            }
-        }
+    if (!function_exists('bndp_is_box_now_delivery_selected') || !bndp_is_box_now_delivery_selected()) {
+        return $description;
     }
 
-    return $description;
+    $custom_description = function_exists('bndp_get_custom_cod_description_for_current_zone')
+        ? bndp_get_custom_cod_description_for_current_zone()
+        : '';
+
+    return '' !== $custom_description ? $custom_description : $description;
 }
 
 // Refresh the checkout page when the payment method changes

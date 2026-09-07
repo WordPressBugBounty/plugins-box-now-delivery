@@ -4,7 +4,7 @@ Plugin Name: BOX NOW Delivery
 Description: A Wordpress plugin from BOX NOW to integrate your eshop with our services.
 Author: BOX NOW
 Text Domain: box-now-delivery
-Version: 3.3
+Version: 3.4.0
 License: GPLv2 or later
 */
 
@@ -15,7 +15,140 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Plugin Version Constant
  */
-define( 'BOX_NOW_DELIVERY_VERSION', '3.3.1' );
+define( 'BOX_NOW_DELIVERY_VERSION', '3.4.0' );
+
+/**
+ * Exception used for BOX NOW voucher creation errors with a user-facing message.
+ */
+class BNDP_Voucher_Creation_API_Exception extends Exception
+{
+}
+
+/**
+ * Get a user-facing message for a supported BOX NOW voucher creation API error.
+ *
+ * @param array|null $response_body Decoded BOX NOW API response.
+ * @param int|null   $response_code HTTP response status code.
+ * @return string Translated error message, or an empty string for unsupported codes.
+ */
+function bndp_get_voucher_creation_api_error_message($response_body, $response_code = null)
+{
+    if (401 === (int) $response_code) {
+        $error_code = '401';
+    } elseif (is_array($response_body) && isset($response_body['code'])) {
+        $error_code = strtoupper(trim((string) $response_body['code']));
+    } elseif (is_array($response_body) && isset($response_body['id']) && '401' === (string) $response_body['id']) {
+        $error_code = '401';
+    } else {
+        $error_code = '';
+    }
+
+    $error_messages = array(
+            '401'  => __('401: There is a problem with your BOX NOW API credentials. Check the BOX NOW Settings, re-enter your API credentials, and try again. If you have not completed staging voucher tests, your production credentials may not yet be active.', 'box-now-delivery'),
+            'P402' => __('P402: The Locker ID is missing or invalid. Make sure the Locker ID field is filled in, or select a locker manually.', 'box-now-delivery'),
+            'P405' => __('P405: The phone number is invalid. Enter the full number in international format, for example +30xxxxxxxxxx.', 'box-now-delivery'),
+            'P411' => __('P411: This account is not eligible to use cash on delivery. Choose another payment method, or contact BOX NOW support to request that this service be enabled.', 'box-now-delivery'),
+            'P466' => __('P466: A voucher cannot be created because this account has overdue payments. Contact the BOX NOW accounting department or your sales account manager.', 'box-now-delivery'),
+            'P467' => __("P467: The request IP address is not on this account's allowlist. Send the request from an approved IP address, or contact BOX NOW support to update the allowed IP ranges.", 'box-now-delivery'),
+    );
+
+    return $error_messages[$error_code] ?? '';
+}
+
+/**
+ * Return the active WooCommerce session when one is available.
+ *
+ * WooCommerce does not initialize customer sessions for every request type,
+ * including some wp-admin and third-party REST API requests.
+ *
+ * @return object|null
+ */
+function bndp_get_wc_session()
+{
+    if (!function_exists('WC')) {
+        return null;
+    }
+
+    $woocommerce = WC();
+
+    return is_object($woocommerce) && isset($woocommerce->session)
+        ? $woocommerce->session
+        : null;
+}
+
+/**
+ * Widget properties stored as an order's locker selection snapshot.
+ */
+function bndp_box_now_locker_detail_meta_keys()
+{
+    return array(
+        'boxnowLockerName' => '_boxnow_locker_name',
+        'boxnowLockerAddressLine1' => '_boxnow_locker_address',
+        'boxnowLockerPostalCode' => '_boxnow_locker_postal_code',
+    );
+}
+
+/**
+ * Decode widget JSON before sanitizing individual fields. Postal codes stay strings.
+ */
+function bndp_sanitize_box_now_locker_data($data)
+{
+    if (is_string($data)) {
+        $data = json_decode($data, true);
+    }
+
+    if (!is_array($data) || !isset($data['boxnowLockerId']) ||
+        (!is_string($data['boxnowLockerId']) && !is_numeric($data['boxnowLockerId']))) {
+        return array();
+    }
+
+    $locker_id = sanitize_text_field((string) $data['boxnowLockerId']);
+    if ('' === $locker_id) {
+        return array();
+    }
+
+    $sanitized = array('boxnowLockerId' => $locker_id);
+    foreach (bndp_box_now_locker_detail_meta_keys() as $property => $meta_key) {
+        if (array_key_exists($property, $data)) {
+            $sanitized[$property] = is_string($data[$property]) || is_numeric($data[$property])
+                ? sanitize_text_field((string) $data[$property])
+                : '';
+        }
+    }
+
+    return $sanitized;
+}
+
+/**
+ * Set the ID and its matching details together, without saving the order itself.
+ * ID-only updates preserve existing details only when the ID has not changed.
+ */
+function bndp_set_order_locker_selection($order, $locker_id, $locker_data = array())
+{
+    $locker_id = sanitize_text_field((string) $locker_id);
+    $locker_data = bndp_sanitize_box_now_locker_data($locker_data);
+    $has_details = count($locker_data) > 1 && $locker_data['boxnowLockerId'] === $locker_id;
+    $id_changed = (string) $order->get_meta('_boxnow_locker_id') !== $locker_id;
+
+    foreach (bndp_box_now_locker_detail_meta_keys() as $property => $meta_key) {
+        if ($has_details && isset($locker_data[$property]) && '' !== $locker_data[$property]) {
+            $order->update_meta_data($meta_key, $locker_data[$property]);
+        } elseif ($has_details || $id_changed || '' === $locker_id) {
+            $order->delete_meta_data($meta_key);
+        }
+    }
+
+    $order->update_meta_data('_boxnow_locker_id', $locker_id);
+}
+
+function bndp_clear_box_now_locker_session()
+{
+    $session = bndp_get_wc_session();
+    if ($session && is_callable(array($session, 'set'))) {
+        $session->set('boxnow_selected_locker_id', null);
+        $session->set('boxnow_selected_locker', null);
+    }
+}
 
 add_action('before_woocommerce_init', 'boxnow_declare_hpos_compatibility');
 function boxnow_declare_hpos_compatibility()
@@ -258,10 +391,10 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
     {
         if (isset($_POST['box_now_selected_locker'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Read-only checkout request inspection during WooCommerce validation.
             $locker_data_json = wp_unslash($_POST['box_now_selected_locker']); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- JSON is decoded first; the extracted locker id is sanitized below.
-            $locker_data = json_decode($locker_data_json, true);
+            $locker_data = bndp_sanitize_box_now_locker_data($locker_data_json);
 
-            if (JSON_ERROR_NONE === json_last_error() && is_array($locker_data) && !empty($locker_data['boxnowLockerId'])) {
-                return sanitize_text_field($locker_data['boxnowLockerId']);
+            if (!empty($locker_data['boxnowLockerId'])) {
+                return $locker_data['boxnowLockerId'];
             }
         }
 
@@ -314,8 +447,9 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
             return false;
         }
 
-        if (function_exists('WC') && WC()->session) {
-            $chosen_shipping_methods = WC()->session->get('chosen_shipping_methods', array());
+        $session = bndp_get_wc_session();
+        if ($session && is_callable(array($session, 'get'))) {
+            $chosen_shipping_methods = $session->get('chosen_shipping_methods', array());
             foreach ((array) $chosen_shipping_methods as $shipping_method) {
                 if (bndp_is_box_now_shipping_method_value($shipping_method)) {
                     return true;
@@ -341,14 +475,45 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
             return $posted_locker_id;
         }
 
-        if (function_exists('WC') && WC()->session) {
-            $session_locker_id = WC()->session->get('boxnow_selected_locker_id');
+        $session = bndp_get_wc_session();
+        if ($session && is_callable(array($session, 'get'))) {
+            $session_locker_id = $session->get('boxnow_selected_locker_id');
             if (!empty($session_locker_id)) {
                 return sanitize_text_field($session_locker_id);
             }
         }
 
         return '';
+    }
+
+    /**
+     * Read details in the same order as checkout ID resolution. A fallback must
+     * describe the selected ID, never a different locker left in the session.
+     */
+    function bndp_get_box_now_locker_details_for_id($locker_id, $request_data = array())
+    {
+        $candidates = array(
+            $request_data['extensions']['box-now-delivery']['box_now_selected_locker'] ?? array(),
+            $request_data['box_now_selected_locker'] ?? array(),
+        );
+
+        if (isset($_POST['box_now_selected_locker'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Called within WooCommerce checkout's authorized order-save flow.
+            $candidates[] = wp_unslash($_POST['box_now_selected_locker']); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Each decoded property is sanitized below.
+        }
+
+        $session = bndp_get_wc_session();
+        if ($session && is_callable(array($session, 'get'))) {
+            $candidates[] = $session->get('boxnow_selected_locker');
+        }
+
+        foreach ($candidates as $candidate) {
+            $locker_data = bndp_sanitize_box_now_locker_data($candidate);
+            if (count($locker_data) > 1 && $locker_data['boxnowLockerId'] === (string) $locker_id) {
+                return $locker_data;
+            }
+        }
+
+        return array();
     }
 
     function bndp_throw_store_api_locker_error()
@@ -546,6 +711,11 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
         if ($box_now_used) {
 
             $locker_id = $order->get_meta('_boxnow_locker_id');
+            $locker_name = (string) $order->get_meta('_boxnow_locker_name');
+            $locker_address = implode(', ', array_filter(array(
+                (string) $order->get_meta('_boxnow_locker_address'),
+                (string) $order->get_meta('_boxnow_locker_postal_code'),
+            ), 'strlen'));
             $warehouse_id = $order->get_meta('_selected_warehouse');
             $warehouse_names = bndp_get_boxnow_warehouse_names_for_admin_order();
             $warehouse_display_name = isset($warehouse_names[(string) $warehouse_id]) ? $warehouse_names[(string) $warehouse_id] : '';
@@ -574,6 +744,12 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
                 <div class="address">
                     <?php
                     echo '<p><strong>' . esc_html__('Locker ID', 'box-now-delivery') . ':</strong>' . esc_html($locker_id) . '</p>';
+                    if ('' !== $locker_name) {
+                        echo '<p><strong>' . esc_html__('Locker name', 'box-now-delivery') . ':</strong> ' . esc_html($locker_name) . '</p>';
+                    }
+                    if ('' !== $locker_address) {
+                        echo '<p><strong>' . esc_html__('Locker address', 'box-now-delivery') . ':</strong> ' . esc_html($locker_address) . '</p>';
+                    }
                     echo '<p><strong>' . esc_html__('Warehouse ID', 'box-now-delivery') . ':</strong>' . esc_html($warehouse_id);
                     if ($warehouse_display_name !== '') {
                         echo ' - ' . esc_html($warehouse_display_name);
@@ -590,8 +766,12 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
                         'wrapper_class' => '_boxnow_locker_id',
                         'value' => $order->get_meta('_boxnow_locker_id')
                     ));
+                    echo '<input type="hidden" id="box_now_selected_locker_input" name="box_now_selected_locker" value="" />';
                     echo '<a id="box_now_delivery_button" class="button box-now-admin-find-locker" href="#">' . esc_html__('Find a Locker', 'box-now-delivery') . '</a>';
                     echo '</div>';
+                    echo '<p id="boxnow-admin-locker-details" data-locker-id="' . esc_attr($locker_id) . '">';
+                    echo esc_html(implode(', ', array_filter(array($locker_name, $locker_address), 'strlen')));
+                    echo '</p>';
                     $warehouse_ids = array_filter(array_map('trim', explode(',', get_option('boxnow_warehouse_id', ''))));
                     if (empty($warehouse_ids) && !empty($warehouse_id)) {
                         $warehouse_ids = array($warehouse_id);
@@ -636,7 +816,10 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
         $locker_id = sanitize_text_field(wp_unslash($_POST['_boxnow_locker_id']));
         $selected_warehouse = sanitize_text_field(wp_unslash($_POST['_selected_warehouse']));
 
-        $order->update_meta_data('_boxnow_locker_id', $locker_id);
+        $locker_data = isset($_POST['box_now_selected_locker'])
+            ? bndp_sanitize_box_now_locker_data(wp_unslash($_POST['box_now_selected_locker']))
+            : array();
+        bndp_set_order_locker_selection($order, $locker_id, $locker_data);
         $order->update_meta_data('_selected_warehouse', $selected_warehouse);
         $order->save();
     }
@@ -657,9 +840,7 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
         }
 
         if (!bndp_checkout_uses_box_now_delivery($order)) {
-            if (function_exists('WC') && WC()->session) {
-                WC()->session->set('boxnow_selected_locker_id', null);
-            }
+            bndp_clear_box_now_locker_session();
             return;
         }
 
@@ -669,8 +850,7 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
 
         // Attempt to get locker data from POST (JSON format)
         if ($has_verified_checkout_post && isset($_POST['box_now_selected_locker'])) {
-            $locker_data_raw = sanitize_text_field(wp_unslash($_POST['box_now_selected_locker']));
-            $locker_data = json_decode($locker_data_raw, true);
+            $locker_data = bndp_sanitize_box_now_locker_data(wp_unslash($_POST['box_now_selected_locker']));
             if (is_array($locker_data) && !empty($locker_data['boxnowLockerId'])) {
                 $locker_id = sanitize_text_field($locker_data['boxnowLockerId']);
             }
@@ -706,8 +886,7 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
             return;
         }
 
-        // Save locker ID to order if available
-        $order->update_meta_data('_boxnow_locker_id', $locker_id);
+        bndp_set_order_locker_selection($order, $locker_id, bndp_get_box_now_locker_details_for_id($locker_id));
 
         // Save default warehouse if not already set.
         if ('' === (string) $order->get_meta('_selected_warehouse', true)) {
@@ -719,9 +898,7 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
 
         // Commit meta data to order
         $order->save();
-        if (function_exists('WC') && WC()->session) {
-            WC()->session->set('boxnow_selected_locker_id', null);
-        }
+        bndp_clear_box_now_locker_session();
     }
     // Classic/shortcode Checkout - Runs when the order object is created, before saving.
     add_action('woocommerce_checkout_create_order', 'bndp_box_now_delivery_checkout_field_update_order_meta');
@@ -745,8 +922,8 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
         $is_place_order_request = 'POST' === $request_method;
 
         if (!bndp_checkout_uses_box_now_delivery($order)) {
-            if ($is_place_order_request && function_exists('WC') && WC()->session) {
-                WC()->session->set('boxnow_selected_locker_id', null);
+            if ($is_place_order_request) {
+                bndp_clear_box_now_locker_session();
             }
             return;
         }
@@ -765,7 +942,7 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
             bndp_throw_store_api_locker_error();
         }
 
-        $order->update_meta_data('_boxnow_locker_id', $locker_id);
+        bndp_set_order_locker_selection($order, $locker_id, bndp_get_box_now_locker_details_for_id($locker_id, $req_data));
 
         if ('' === (string) $order->get_meta('_selected_warehouse', true)) {
             $warehouse_ids = explode(',', str_replace(' ', '', get_option('boxnow_warehouse_id', '')));
@@ -775,8 +952,8 @@ if (is_plugin_active('woocommerce/woocommerce.php')) {
         }
 
         // Keep the fallback value during draft updates; clear it after final submission.
-        if ($is_place_order_request && function_exists('WC') && WC()->session) {
-            WC()->session->set('boxnow_selected_locker_id', null);
+        if ($is_place_order_request) {
+            bndp_clear_box_now_locker_session();
         }
         
         $order->save();
@@ -812,8 +989,8 @@ function bndp_is_box_now_delivery_selected()
         return false;
     }
 
-    $session = WC()->session;
-    if ($session) {
+    $session = bndp_get_wc_session();
+    if ($session && is_callable(array($session, 'get'))) {
         $chosen = $session->get('chosen_shipping_methods');
         if (is_array($chosen)) {
             foreach ($chosen as $method) {
@@ -850,11 +1027,11 @@ function bndp_is_box_now_delivery_selected()
 
 function bndp_box_now_delivery_adjust_cod_gateway_title($gateways)
 {
-    if (is_admin()) {
-        return $gateways;
-    }
-
-    if (empty($gateways['cod'])) {
+    if (
+        !function_exists('boxnow_is_checkout_or_store_api_request')
+        || !boxnow_is_checkout_or_store_api_request()
+        || empty($gateways['cod'])
+    ) {
         return $gateways;
     }
 
@@ -878,10 +1055,16 @@ function bndp_box_now_delivery_adjust_cod_gateway_title($gateways)
 
 function bndp_change_cod_title_for_box_now_delivery($title, $payment_id)
 {
-    if (!is_admin() && $payment_id === 'cod') {
-        if (bndp_is_box_now_delivery_selected()) {
-            $title = __('BOX NOW PAY ON THE GO!', 'box-now-delivery');
-        }
+    if (
+        'cod' !== $payment_id
+        || !function_exists('boxnow_is_checkout_or_store_api_request')
+        || !boxnow_is_checkout_or_store_api_request()
+    ) {
+        return $title;
+    }
+
+    if (bndp_is_box_now_delivery_selected()) {
+        $title = __('BOX NOW PAY ON THE GO!', 'box-now-delivery');
     }
 
     return $title;
@@ -924,7 +1107,10 @@ function boxnow_order_completed($order_id)
         } catch (Throwable $e) {
             // Since this is a hook based action that cannot show an alert dialog, add order note to inform user of the error
             if (isset($order)) {
-                $order->add_order_note("BOX NOW: Error, unable to create voucher.", false);
+                $order_note = $e instanceof BNDP_Voucher_Creation_API_Exception
+                    ? $e->getMessage()
+                    : "BOX NOW: Error, unable to create voucher.";
+                $order->add_order_note($order_note, false);
             }
             return;
         }
@@ -1021,6 +1207,11 @@ function boxnow_order_completed_delivery_request($prep_data, $order_id, $num_vou
             $order->update_meta_data('_boxnow_parcel_ids', $parcel_ids);
             $order->save();
         } else {
+            $api_error_message = bndp_get_voucher_creation_api_error_message($response_body, $response_code);
+            if ($api_error_message) {
+                throw new BNDP_Voucher_Creation_API_Exception($api_error_message);
+            }
+
             throw new Exception('BOX NOW: Unable to create vouchers.' . json_encode($response_body));
         }
         return wp_remote_retrieve_body($response);
@@ -1285,6 +1476,11 @@ function boxnow_send_delivery_request($prep_data, $order_id, $num_vouchers, $com
             $order->update_meta_data('_boxnow_parcel_ids', $parcel_ids);
             $order->save();
         } else {
+            $api_error_message = bndp_get_voucher_creation_api_error_message($response_body, $response_code);
+            if ($api_error_message) {
+                throw new BNDP_Voucher_Creation_API_Exception($api_error_message);
+            }
+
             throw new Exception('BOX NOW: Unable to create vouchers.' . json_encode($response_body));
         }
         return wp_remote_retrieve_body($response);
@@ -1327,7 +1523,7 @@ function boxnow_get_access_token()
 add_action('woocommerce_review_order_before_payment', 'boxnow_add_cod_payment_refresh_script');
 
 
-// AJAX handler to store locker id in Woo session when selected on the checkout (works for guests too)
+// Store the locker selection in the Woo session as a checkout fallback (including guests).
 function boxnow_set_locker_handler()
 {
     $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
@@ -1339,7 +1535,18 @@ function boxnow_set_locker_handler()
     $locker_id = isset($_POST['locker_id']) ? sanitize_text_field(wp_unslash($_POST['locker_id'])) : '';
 
     if ($locker_id) {
-        WC()->session->set('boxnow_selected_locker_id', $locker_id);
+        $session = bndp_get_wc_session();
+        if (!$session || !is_callable(array($session, 'set'))) {
+            wp_send_json_error(array('message' => 'WooCommerce session is unavailable.'), 503);
+        }
+
+        $session->set('boxnow_selected_locker_id', $locker_id);
+        $locker_data = isset($_POST['box_now_selected_locker'])
+            ? bndp_sanitize_box_now_locker_data(wp_unslash($_POST['box_now_selected_locker']))
+            : array();
+        $session->set('boxnow_selected_locker',
+            !empty($locker_data) && $locker_data['boxnowLockerId'] === $locker_id ? $locker_data : null
+        );
         wp_send_json_success(array('message' => 'Locker ID saved to session'));
     } else {
         wp_send_json_error(array('message' => 'No locker ID provided'));
@@ -1362,7 +1569,7 @@ function boxnow_clear_locker_handler()
         wp_send_json_error(array('message' => 'Invalid nonce'), 403);
     }
 
-    WC()->session->set('boxnow_selected_locker_id', null);
+    bndp_clear_box_now_locker_session();
     wp_send_json_success(array('message' => 'Locker ID cleared from session'));
 }
 
@@ -1484,7 +1691,7 @@ function box_now_delivery_vouchers_js($hook = '')
     wp_enqueue_script('box-now-create-voucher-js', plugin_dir_url(__FILE__) . 'js/box-now-create-voucher.js', array('jquery'), BOX_NOW_DELIVERY_VERSION, true);
 
     // Pass the nonce to your script
-    wp_localize_script('box-now-create-voucher-js', 'myAjax', array(
+    wp_localize_script('box-now-create-voucher-js', 'boxNowDeliveryAjax', array(
             'nonce' => wp_create_nonce('box-now-delivery-nonce'),
             'ajaxurl' => admin_url('admin-ajax.php'),
     ));
@@ -1969,6 +2176,25 @@ function boxnow_thankyou_locker_ui($order_id)
             ';
         }
 
+        // Render saved details so reloads do not depend on checkout local storage.
+        $locker_details = array();
+        if ('' !== (string) $locker_id) {
+            foreach (bndp_box_now_locker_detail_meta_keys() as $meta_key) {
+                $value = (string) $order->get_meta($meta_key);
+                if ('' !== $value) {
+                    $locker_details[] = $value;
+                }
+            }
+        }
+        echo '<div id="box_now_selected_locker_details"' . (empty($locker_details) ? ' style="display:none;"' : '') . '>';
+        if (!empty($locker_details)) {
+            echo '<div class="locker-info"><p class="locker-title">' . esc_html__('Selected Locker', 'box-now-delivery') . '</p>';
+            foreach ($locker_details as $detail) {
+                echo '<p class="locker-detail">' . esc_html($detail) . '</p>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
         echo '</div>';
         echo '<input type="hidden" id="carrier_name" value="' . esc_attr($carrier_name) . '">';
         echo '<input type="hidden" id="shipping_country" value="' . esc_attr($shipping_country) . '">';
@@ -2016,14 +2242,16 @@ function bndp_thankyou_php_boxnow() {
 
     // Check if locker_id is valid and order key matches
     if (!empty($locker_id) && ($order->get_order_key() === $order_key) && $order->get_id() === $order_id) {
-        // Update locker ID in order meta
-        $order->update_meta_data('_boxnow_locker_id', $locker_id);
+        $locker_data = isset($_POST['box_now_selected_locker'])
+            ? bndp_sanitize_box_now_locker_data(wp_unslash($_POST['box_now_selected_locker']))
+            : array();
+        bndp_set_order_locker_selection($order, $locker_id, $locker_data);
         $order->save();
         // Verify if meta update is successful
         $verify = $order->get_meta('_boxnow_locker_id');
         if ($verify === $locker_id) {
             // Clear session value after saving
-            WC()->session->set('boxnow_selected_locker_id', null);
+            bndp_clear_box_now_locker_session();
             wp_send_json_success(['message' => 'Locker ID saved successfully.', 'saved_value' => $order_id]);
         } else {
             wp_send_json_error(['message' => 'Meta update failed. Value mismatch.', 'attempted' => $locker_id, 'actual' => $verify]);
@@ -2042,6 +2270,7 @@ function bndp_thankyou_php_boxnow() {
                         'nonce' => wp_create_nonce('box-now-delivery-nonce'),
                         'order_id' => get_query_var('order-received'),
                         'selected_title' => __('Your BOX NOW Locker Selection', 'box-now-delivery'),
+                        'selected_locker_label' => __('Selected Locker', 'box-now-delivery'),
                         'selected_description' => __("You're all set! Your order will be delivered to the selected locker.", 'box-now-delivery'),
                         'changed_message' => __('Locker changed successfully.', 'box-now-delivery'),
                         'save_error_message' => __('The locker could not be saved. Please try again.', 'box-now-delivery'),

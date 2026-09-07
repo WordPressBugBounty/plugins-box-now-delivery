@@ -70,11 +70,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 order_id: order_id,
                 voucher_quantity: voucher_quantity,
                 compartment_size: sizeMapping[size], // Send the selected compartment size
-                security: myAjax.nonce,
+                security: boxNowDeliveryAjax.nonce,
             };
 
             jQuery.post(
-                myAjax.ajaxurl,
+                boxNowDeliveryAjax.ajaxurl,
                 data,
                 function (response) {
                     button.disabled = false;
@@ -224,7 +224,7 @@ document.addEventListener("DOMContentLoaded", function () {
             const parcelId = event.target.getAttribute("data-parcel-id");
             const orderId = document.getElementById("box_now_order_id").value;
             window.open(
-                myAjax.ajaxurl + "?action=print_box_now_voucher&parcel_id=" + parcelId + "&order_id=" + orderId + "&security=" + myAjax.nonce,
+                boxNowDeliveryAjax.ajaxurl + "?action=print_box_now_voucher&parcel_id=" + parcelId + "&order_id=" + orderId + "&security=" + boxNowDeliveryAjax.nonce,
                 "_blank",
                 "noopener,noreferrer"
             );
@@ -243,7 +243,7 @@ function handleCancelVoucherClick(event) {
     const parcelId =
         event.target.previousElementSibling.getAttribute("data-parcel-id");
 
-    const nonce = myAjax.nonce;
+    const nonce = boxNowDeliveryAjax.nonce;
 
     const data = {
         action: "cancel_voucher",
@@ -253,7 +253,7 @@ function handleCancelVoucherClick(event) {
     };
 
     jQuery.post(
-        myAjax.ajaxurl,
+        boxNowDeliveryAjax.ajaxurl,
         data,
         function (response) {
 	            if (response.success) {
@@ -301,11 +301,11 @@ function handleCancelVoucherClick(event) {
 	    const data = {
 	        action: "cancel_all_vouchers",
 	        order_id: orderId,
-	        nonce: myAjax.nonce,
+	        nonce: boxNowDeliveryAjax.nonce,
 	    };
 
 	    jQuery.post(
-	        myAjax.ajaxurl,
+	        boxNowDeliveryAjax.ajaxurl,
 	        data,
 	        function (response) {
 	            if (response.success) {

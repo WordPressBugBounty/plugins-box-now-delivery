@@ -2,6 +2,23 @@
     let popupIframe = null;
 
     const boxNowTrustedOriginRegex = /^https:\/\/.*\.boxnow\..*$/;
+    const boxNowGeolocationAllowlist = [
+        "https://widget-v5.boxnow.gr",
+        "https://widget-v5.boxnow.cy",
+        "https://widget-v5.boxnow.bg",
+        "https://widget-v5.boxnow.si",
+        "https://widget-v5.boxnow.hr",
+        "https://widget-v4.boxnow.gr",
+        "https://widget-v4.boxnow.cy",
+        "https://widget-v4.boxnow.bg",
+        "https://widget-v4.boxnow.si",
+        "https://widget-v4.boxnow.hr",
+        "https://map.boxnow.gr",
+        "https://map.boxnow.cy",
+        "https://map.boxnow.bg",
+        "https://map.boxnow.si",
+        "https://map.boxnow.hr",
+    ].join(" ");
 
     $(document).ready(function() {
         attachButtonClickListener()
@@ -10,6 +27,13 @@
         // Add an event listener for the 'message' event
         window.addEventListener("message", handleBoxNowMessage, false);
 
+        $("#_boxnow_locker_id").on("input change", function () {
+            const details = $("#boxnow-admin-locker-details");
+            if (String(this.value) !== details.attr("data-locker-id")) {
+                $("#box_now_selected_locker_input").val("");
+                details.text("");
+            }
+        });
     });
 
     // Checks when the button is clicked to make the popup.
@@ -55,6 +79,7 @@
     function updateLockerDetailsContainer(lockerData) {
         // Check if locker data is not undefined
         if (
+            !lockerData || typeof lockerData !== "object" ||
             lockerData.boxnowLockerId === undefined ||
             lockerData.boxnowLockerAddressLine1 === undefined ||
             lockerData.boxnowLockerPostalCode === undefined ||
@@ -66,11 +91,12 @@
         // Get the selected locker details
         var locker_id = lockerData.boxnowLockerId;
 
-        // Add more fields as needed
-        localStorage.setItem("box_now_selected_locker", JSON.stringify(lockerData));
-
-        // Add a hidden input field to store locker information
+        // Submit the details with this order's next save.
         document.getElementById('_boxnow_locker_id').value = locker_id;
+        $("#box_now_selected_locker_input").val(JSON.stringify(lockerData));
+        $("#boxnow-admin-locker-details")
+            .attr("data-locker-id", String(locker_id))
+            .text([lockerData.boxnowLockerName, lockerData.boxnowLockerAddressLine1, lockerData.boxnowLockerPostalCode].filter(value => value !== "").join(", "));
 
         if (boxNowDeliverySettings.displayMode === "popup") {
             closeBoxNowPopup();
@@ -130,7 +156,7 @@
         let iframe = $("<iframe>", {
             id: "boxnow_widget_admin_page_iframe",
             src: src,
-            allow: "geolocation https://*.boxnow.gr https://*.boxnow.cy https://*.boxnow.bg https://*.boxnow.si https://*.boxnow.hr",
+            allow: "geolocation " + boxNowGeolocationAllowlist,
             css: {
                 position: "fixed",
                 top: "50%",
@@ -170,7 +196,7 @@
 
         if (
             data === "closeIframe" ||
-            data.boxnowClose !== undefined
+            (data && data.boxnowClose !== undefined)
         ) {
             closeBoxNowPopup();
         } else {

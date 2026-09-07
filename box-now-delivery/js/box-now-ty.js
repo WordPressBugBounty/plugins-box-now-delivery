@@ -5,6 +5,23 @@
     let popupIframe = null;
 
     const boxNowTrustedOriginRegex = /^https:\/\/.*\.boxnow\..*$/;
+    const boxNowGeolocationAllowlist = [
+        "https://widget-v5.boxnow.gr",
+        "https://widget-v5.boxnow.cy",
+        "https://widget-v5.boxnow.bg",
+        "https://widget-v5.boxnow.si",
+        "https://widget-v5.boxnow.hr",
+        "https://widget-v4.boxnow.gr",
+        "https://widget-v4.boxnow.cy",
+        "https://widget-v4.boxnow.bg",
+        "https://widget-v4.boxnow.si",
+        "https://widget-v4.boxnow.hr",
+        "https://map.boxnow.gr",
+        "https://map.boxnow.cy",
+        "https://map.boxnow.bg",
+        "https://map.boxnow.si",
+        "https://map.boxnow.hr",
+    ].join(" ");
 
     $(document).ready(function() {
         attachButtonClickListener()
@@ -41,7 +58,7 @@
             // Now it's safe to process the message
             if (
                 data === "closeIframe" ||
-                data.boxnowClose !== undefined
+                (data && data.boxnowClose !== undefined)
             ) {
                 closeBoxNowPopup()
             } else {
@@ -90,6 +107,7 @@
     function updateLockerDetailsContainer(lockerData) {
         // Check if locker data is not undefined
         if (
+            !lockerData || typeof lockerData !== "object" ||
             lockerData.boxnowLockerId === undefined ||
             lockerData.boxnowLockerAddressLine1 === undefined ||
             lockerData.boxnowLockerPostalCode === undefined ||
@@ -100,9 +118,6 @@
 
         // Get the selected locker details
         var locker_id = lockerData.boxnowLockerId;
-
-        // Add more fields as needed
-        localStorage.setItem("box_now_selected_locker", JSON.stringify(lockerData));
 
         // Fetch order id and secret
         var order_id = (typeof thankyou_boxnow !== 'undefined' && thankyou_boxnow.order_id) ?
@@ -118,12 +133,13 @@
                 action: 'thankyou_php_boxnow',
                 order_id: order_id,
                 _boxnow_locker_id: locker_id,
+                box_now_selected_locker: JSON.stringify(lockerData),
                 order_key: order_key,
                 nonce: (typeof thankyou_boxnow !== 'undefined' && thankyou_boxnow.nonce) ? thankyou_boxnow.nonce : ''
             },
             success: function (response) {
                 if (response.success) {
-                    updateThankYouPage(locker_id);
+                    updateThankYouPage(lockerData);
                     localStorage.removeItem("box_now_selected_locker");
                 } else {
                     showSaveError();
@@ -141,7 +157,7 @@
         }
     }
 
-    function updateThankYouPage(lockerId) {
+    function updateThankYouPage(lockerData) {
         const lockerIdRow = document.querySelector('.boxnow-thankyou__locker-id');
         const lockerIdValue = document.querySelector('.boxnow-thankyou__locker-id span');
         const title = document.querySelector('.boxnow-thankyou__title');
@@ -149,7 +165,7 @@
         const statusMessage = document.querySelector('.boxnow-thankyou__status');
 
         if (lockerIdValue) {
-            lockerIdValue.textContent = lockerId;
+            lockerIdValue.textContent = lockerData.boxnowLockerId;
         }
         if (lockerIdRow) {
             lockerIdRow.hidden = false;
@@ -159,6 +175,34 @@
         }
         if (description && thankyou_boxnow.selected_description) {
             description.textContent = thankyou_boxnow.selected_description;
+        }
+
+        let details = document.getElementById('box_now_selected_locker_details');
+        const button = document.getElementById('box_now_delivery_button');
+        if (!details && button) {
+            details = document.createElement('div');
+            details.id = 'box_now_selected_locker_details';
+            button.insertAdjacentElement('afterend', details);
+        }
+        if (details) {
+            const info = document.createElement('div');
+            info.className = 'locker-info';
+            const heading = document.createElement('p');
+            heading.className = 'locker-title';
+            heading.textContent = thankyou_boxnow.selected_locker_label || 'Selected Locker';
+            info.appendChild(heading);
+
+            [lockerData.boxnowLockerName, lockerData.boxnowLockerAddressLine1, lockerData.boxnowLockerPostalCode].forEach(value => {
+                if (value === undefined || value === null || value === '') return;
+                const line = document.createElement('p');
+                line.className = 'locker-detail';
+                line.textContent = value;
+                info.appendChild(line);
+            });
+
+            details.replaceChildren(info);
+            details.hidden = false;
+            details.style.display = 'block';
         }
         if (statusMessage) {
             statusMessage.classList.remove('boxnow-thankyou__status--error');
@@ -228,7 +272,7 @@
         let iframe = $("<iframe>", {
             id: "boxnow_widget_thank_you_page_iframe",
             src: src,
-            allow: "geolocation https://*.boxnow.gr https://*.boxnow.cy https://*.boxnow.bg https://*.boxnow.si https://*.boxnow.hr",
+            allow: "geolocation " + boxNowGeolocationAllowlist,
             css: {
                 position: "fixed",
                 top: "50%",

@@ -3,11 +3,33 @@
     let iframeObserver = null;
     let popupIframe = null;
     let checkoutUIRefreshScheduled = false;
-    let lastPersistedLockerId = null;
+    let lastPersistedLockerData = null;
 
     const boxNowTrustedOriginRegex = /^https:\/\/.*\.boxnow\..*$/;
+    const boxNowGeolocationAllowlist = [
+        "https://widget-v5.boxnow.gr",
+        "https://widget-v5.boxnow.cy",
+        "https://widget-v5.boxnow.bg",
+        "https://widget-v5.boxnow.si",
+        "https://widget-v5.boxnow.hr",
+        "https://widget-v4.boxnow.gr",
+        "https://widget-v4.boxnow.cy",
+        "https://widget-v4.boxnow.bg",
+        "https://widget-v4.boxnow.si",
+        "https://widget-v4.boxnow.hr",
+        "https://map.boxnow.gr",
+        "https://map.boxnow.cy",
+        "https://map.boxnow.bg",
+        "https://map.boxnow.si",
+        "https://map.boxnow.hr",
+    ].join(" ");
 
     function handleBoxNowMessage(event) {
+        // The thank-you handler saves to the order before updating its details.
+        if (boxNowDeliverySettings.page === "thankyou_page") {
+            return;
+        }
+
         // 1. Must be from our iframe
         if (boxNowDeliverySettings.displayMode === "popup" && (!popupIframe || event.source !== popupIframe.contentWindow)) {
             return;
@@ -308,7 +330,7 @@
         let iframe = $("<iframe>", {
             id: "box_now_delivery_iframe_popup",
             src: src,
-            allow: "geolocation https://*.boxnow.gr https://*.boxnow.cy https://*.boxnow.bg https://*.boxnow.si https://*.boxnow.hr",
+            allow: "geolocation " + boxNowGeolocationAllowlist,
             css: {
                 position: "fixed",
                 top: "50%",
@@ -404,28 +426,31 @@
         });
     }
 
-    function sendLockerToServer(lockerId) {
-        if (!lockerId || lockerId === lastPersistedLockerId) {
+    function sendLockerToServer(lockerData) {
+        var lockerId = lockerData.boxnowLockerId;
+        var serializedLocker = JSON.stringify(lockerData);
+        if (!lockerId || serializedLocker === lastPersistedLockerData) {
             return;
         }
 
-        lastPersistedLockerId = lockerId;
+        lastPersistedLockerData = serializedLocker;
         $.ajax({
             url: boxNowDeliverySettings.ajaxUrl,
             type: 'POST',
             data: {
                 action: 'boxnow_set_locker',
                 locker_id: lockerId,
+                box_now_selected_locker: serializedLocker,
                 nonce: boxNowDeliverySettings.nonce
             },
             success: function(response) {
-                if ((!response || response.success !== true) && lastPersistedLockerId === lockerId) {
-                    lastPersistedLockerId = null;
+                if ((!response || response.success !== true) && lastPersistedLockerData === serializedLocker) {
+                    lastPersistedLockerData = null;
                 }
             },
             error: function(xhr, status, error) {
-                if (lastPersistedLockerId === lockerId) {
-                    lastPersistedLockerId = null;
+                if (lastPersistedLockerData === serializedLocker) {
+                    lastPersistedLockerData = null;
                 }
             }
         });
@@ -442,6 +467,7 @@
 
         // Check if locker data is not undefined
         if (
+            !lockerData || typeof lockerData !== "object" ||
             lockerData.boxnowLockerId === undefined ||
             lockerData.boxnowLockerAddressLine1 === undefined ||
             lockerData.boxnowLockerPostalCode === undefined ||
@@ -526,7 +552,7 @@
         }
 
         if (options.persistToSession) {
-            sendLockerToServer(locker_id);
+            sendLockerToServer(lockerData);
         }
         toggleExpressCheckoutForBoxNow();
 
@@ -539,6 +565,11 @@
      * Show the selected locker details from local storage.
      */
     function showSelectedLockerDetailsFromLocalStorage() {
+        // The thank-you page displays the saved order selection, not checkout storage.
+        if (boxNowDeliverySettings.page === "thankyou_page") {
+            return;
+        }
+
         var lockerData = localStorage.getItem("box_now_selected_locker");
 
         if (!lockerData) {
@@ -595,16 +626,15 @@
             return lockerField;
         }
 
-        var lockerData = localStorage.getItem("box_now_selected_locker");
-        if (!lockerData) {
-            return "";
-        }
+        var lockerData = getSelectedLockerData();
+        return lockerData && lockerData.boxnowLockerId ? lockerData.boxnowLockerId : "";
+    }
 
+    function getSelectedLockerData() {
         try {
-            var parsedLockerData = JSON.parse(lockerData);
-            return parsedLockerData && parsedLockerData.boxnowLockerId ? parsedLockerData.boxnowLockerId : "";
+            return JSON.parse(localStorage.getItem("box_now_selected_locker"));
         } catch (e) {
-            return "";
+            return null;
         }
     }
 
@@ -631,7 +661,10 @@
                     "box-now-delivery": Object.assign(
                         {},
                         extensionData["box-now-delivery"] || {},
-                        { _boxnow_locker_id: lockerId }
+                        {
+                            _boxnow_locker_id: lockerId,
+                            box_now_selected_locker: getSelectedLockerData() || {}
+                        }
                     )
                 });
             }
@@ -691,7 +724,7 @@
     }
 
     function clearSelectedLocker() {
-        lastPersistedLockerId = null;
+        lastPersistedLockerData = null;
         localStorage.removeItem("box_now_selected_locker");
         $("#box_now_selected_locker_details").hide().empty();
         removeLockerFromSession();
